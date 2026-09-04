@@ -44,6 +44,12 @@
         "projectId": "c57e9f3b-1368-43ae-95b7-fc98815e0934"
       }
     },
-    "owner": "notcritkai"
+    "owner": "notcritkai",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c57e9f3b-1368-43ae-95b7-fc98815e0934"
+    }
   }
 }
