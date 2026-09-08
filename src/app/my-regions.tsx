@@ -29,8 +29,8 @@ type RoutePokemon = {
   name: string;
   percentage: string;
 };
-const regionTypes = ["Grassland", "Mountain", "Ocean"];
-const routeCounts = Array.from({ length: 36 }, (_, index) => String(index + 1));
+const biomes = ["Grassland", "Mountain", "Ocean", "Forest", "Desert", "Tundra"];
+const routeCounts = Array.from({ length: 39 }, (_, index) => String(index + 1));
 const pokemonTypes = [
   "normal",
   "fire",
@@ -435,9 +435,9 @@ export default function MyRegionsScreen() {
             </View>
 
             <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Type of Region</ThemedText>
+              <ThemedText type="smallBold">Biome</ThemedText>
               <View style={styles.dropdownOptions}>
-                {regionTypes.map((type) => (
+                {biomes.map((type) => (
                   <Pressable
                     key={type}
                     onPress={() => setRegionType(type)}
@@ -916,9 +916,9 @@ const styles = StyleSheet.create({
   },
   menu: {
     width: "100%",
-    maxWidth: 480,
+    maxWidth: 640,
     gap: 16,
-    padding: 24,
+    padding: 32,
     borderRadius: 16,
   },
   contentMenu: {
@@ -1089,7 +1089,9 @@ const styles = StyleSheet.create({
   },
   dropdown: {
     minHeight: 40,
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "30%",
+    minWidth: 136,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
@@ -1098,6 +1100,7 @@ const styles = StyleSheet.create({
   },
   dropdownOptions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   routeDropdown: {
@@ -1117,7 +1120,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.2)",
   },
   routeOption: {
-    width: 36,
+    width: 35,
     minHeight: 36,
     alignItems: "center",
     justifyContent: "center",
