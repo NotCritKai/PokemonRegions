@@ -25,6 +25,8 @@ type Region = {
   routeNames: string[];
   routePokemon: Record<string, RoutePokemon[]>;
   gyms: string[];
+  eliteFour: string[];
+  champion: string | null;
 };
 type RoutePokemon = {
   name: string;
@@ -97,6 +99,14 @@ export default function MyRegionsScreen() {
   const [gymContentMenuVisible, setGymContentMenuVisible] = useState(false);
   const [editingGymIndex, setEditingGymIndex] = useState<number | null>(null);
   const [gymName, setGymName] = useState("");
+  const [eliteMemberMenuVisible, setEliteMemberMenuVisible] = useState(false);
+  const [editingEliteKind, setEditingEliteKind] = useState<
+    "eliteFour" | "champion" | null
+  >(null);
+  const [editingEliteIndex, setEditingEliteIndex] = useState<number | null>(
+    null,
+  );
+  const [eliteMemberName, setEliteMemberName] = useState("");
   const [routeContentMenuVisible, setRouteContentMenuVisible] = useState(false);
   const [selectedRouteName, setSelectedRouteName] = useState("");
   const [selectedRoutePokemon, setSelectedRoutePokemon] = useState<
@@ -127,6 +137,8 @@ export default function MyRegionsScreen() {
             routeNames: region.routeNames ?? [],
             routePokemon: region.routePokemon ?? {},
             gyms: region.gyms ?? [],
+            eliteFour: region.eliteFour ?? [],
+            champion: region.champion ?? null,
           })),
         );
       } catch {
@@ -320,6 +332,122 @@ export default function MyRegionsScreen() {
     );
   }
 
+  function addEliteFour() {
+    if (contentRegionIndex === null) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) => {
+        if (index !== contentRegionIndex) return region;
+
+        const eliteFour = region.eliteFour ?? [];
+        const numberToAdd = Math.min(4 - eliteFour.length, 4);
+        if (numberToAdd <= 0) return region;
+
+        return {
+          ...region,
+          eliteFour: [
+            ...eliteFour,
+            ...Array.from(
+              { length: numberToAdd },
+              (_, memberIndex) =>
+                `Elite 4 ${eliteFour.length + memberIndex + 1}`,
+            ),
+          ],
+        };
+      }),
+    );
+  }
+
+  function addChampion() {
+    if (contentRegionIndex === null) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) =>
+        index === contentRegionIndex && !region.champion
+          ? { ...region, champion: "Champion" }
+          : region,
+      ),
+    );
+  }
+
+  function openEliteMemberMenu(
+    kind: "eliteFour" | "champion",
+    memberIndex?: number,
+  ) {
+    if (kind === "eliteFour") {
+      const index = memberIndex ?? 0;
+      setEditingEliteKind("eliteFour");
+      setEditingEliteIndex(index);
+      setEliteMemberName(activeEliteFourNames[index] ?? "");
+    } else {
+      setEditingEliteKind("champion");
+      setEditingEliteIndex(null);
+      setEliteMemberName(activeChampionName ?? "");
+    }
+    setEliteMemberMenuVisible(true);
+  }
+
+  function saveEliteMember() {
+    if (contentRegionIndex === null || editingEliteKind === null) return;
+
+    if (editingEliteKind === "eliteFour" && editingEliteIndex !== null) {
+      const name =
+        eliteMemberName.trim() || `Elite 4 ${editingEliteIndex + 1}`;
+      setRegions((currentRegions) =>
+        currentRegions.map((region, index) =>
+          index === contentRegionIndex
+            ? {
+                ...region,
+                eliteFour: region.eliteFour.map((member, memberIndex) =>
+                  memberIndex === editingEliteIndex ? name : member,
+                ),
+              }
+            : region,
+        ),
+      );
+    } else if (editingEliteKind === "champion") {
+      const name = eliteMemberName.trim() || "Champion";
+      setRegions((currentRegions) =>
+        currentRegions.map((region, index) =>
+          index === contentRegionIndex ? { ...region, champion: name } : region,
+        ),
+      );
+    }
+
+    setEliteMemberMenuVisible(false);
+  }
+
+  function removeEliteFour(memberIndex: number) {
+    if (contentRegionIndex === null) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) => {
+        if (index !== contentRegionIndex) return region;
+
+        return {
+          ...region,
+          eliteFour: region.eliteFour
+            .filter((_, currentIndex) => currentIndex !== memberIndex)
+            .map((name, currentIndex) =>
+              name.startsWith("Elite 4 ")
+                ? `Elite 4 ${currentIndex + 1}`
+                : name,
+            ),
+        };
+      }),
+    );
+  }
+
+  function removeChampion() {
+    if (contentRegionIndex === null) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) =>
+        index === contentRegionIndex ? { ...region, champion: null } : region,
+      ),
+    );
+  }
+
   function openRouteMenu(routeName: string) {
     setSelectedRouteName(routeName);
     setRouteContentMenuVisible(true);
@@ -346,6 +474,8 @@ export default function MyRegionsScreen() {
         routeNames: [],
         routePokemon: {},
         gyms: [],
+        eliteFour: [],
+        champion: null,
       },
     ]);
     setMenuVisible(false);
@@ -366,6 +496,8 @@ export default function MyRegionsScreen() {
               routeNames: region.routeNames ?? [],
               routePokemon: region.routePokemon ?? {},
               gyms: region.gyms ?? [],
+              eliteFour: region.eliteFour ?? [],
+              champion: region.champion ?? null,
             }
           : region,
       ),
@@ -438,6 +570,10 @@ export default function MyRegionsScreen() {
   const canAddSuggestedGyms =
     suggestedGymCount > 0 && activeGymNames.length < suggestedGymCount;
   const remainingGymSlots = 8 - activeGymNames.length;
+  const activeEliteFourNames = activeContentRegion?.eliteFour ?? [];
+  const activeChampionName = activeContentRegion?.champion ?? null;
+  const canAddEliteFour = activeEliteFourNames.length < 4;
+  const canAddChampion = !activeChampionName;
 
   return (
     <ThemedView style={styles.container}>
@@ -799,7 +935,99 @@ export default function MyRegionsScreen() {
               </ThemedText>
             </Pressable>
             {eliteFourExpanded ? (
-              <View style={styles.emptyDropdownContent} />
+              <View style={styles.contentDropdownContent}>
+                <View style={styles.gymActions}>
+                  <Pressable
+                    onPress={addEliteFour}
+                    disabled={!canAddEliteFour}
+                    style={({ pressed }) => [
+                      styles.gymActionButton,
+                      !canAddEliteFour && styles.disabledButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">
+                      {canAddEliteFour ? "Add Elite 4" : "Elite 4 Added"}
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={addChampion}
+                    disabled={!canAddChampion}
+                    style={({ pressed }) => [
+                      styles.gymActionButton,
+                      !canAddChampion && styles.disabledButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">
+                      {canAddChampion ? "Add Champion" : "Champion Added"}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+                <ScrollView
+                  style={styles.contentRouteList}
+                  contentContainerStyle={styles.contentRouteContent}
+                  showsVerticalScrollIndicator
+                >
+                  {activeEliteFourNames.map((memberName, memberIndex) => (
+                    <View
+                      key={`${memberName}-${memberIndex}`}
+                      style={styles.routeActionRow}
+                    >
+                      <Pressable
+                        accessibilityLabel={`Edit ${memberName}`}
+                        accessibilityRole="button"
+                        onPress={() =>
+                          openEliteMemberMenu("eliteFour", memberIndex)
+                        }
+                        style={({ pressed }) => [
+                          styles.routeOptionButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="small">{memberName}</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`Remove ${memberName}`}
+                        accessibilityRole="button"
+                        onPress={() => removeEliteFour(memberIndex)}
+                        style={({ pressed }) => [
+                          styles.removeRouteButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">Remove</ThemedText>
+                      </Pressable>
+                    </View>
+                  ))}
+                  {activeChampionName ? (
+                    <View style={styles.routeActionRow}>
+                      <Pressable
+                        accessibilityLabel={`Edit ${activeChampionName}`}
+                        accessibilityRole="button"
+                        onPress={() => openEliteMemberMenu("champion")}
+                        style={({ pressed }) => [
+                          styles.routeOptionButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="small">{activeChampionName}</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`Remove ${activeChampionName}`}
+                        accessibilityRole="button"
+                        onPress={removeChampion}
+                        style={({ pressed }) => [
+                          styles.removeRouteButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">Remove</ThemedText>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              </View>
             ) : null}
             <Pressable
               accessibilityRole="button"
@@ -912,6 +1140,59 @@ export default function MyRegionsScreen() {
             </Pressable>
             <Pressable
               onPress={() => setGymContentMenuVisible(false)}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Close</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setEliteMemberMenuVisible(false)}
+        transparent
+        visible={eliteMemberMenuVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.gymEditMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              {editingEliteKind === "champion"
+                ? "Edit Champion"
+                : "Edit Elite 4"}
+            </ThemedText>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">
+                {editingEliteKind === "champion"
+                  ? "Champion Name"
+                  : "Elite 4 Name"}
+              </ThemedText>
+              <TextInput
+                placeholder={
+                  editingEliteKind === "champion"
+                    ? "e.x. Champion Blue"
+                    : "e.x. Lorelei"
+                }
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                onChangeText={setEliteMemberName}
+                style={styles.input}
+                value={eliteMemberName}
+              />
+            </View>
+            <Pressable
+              onPress={saveEliteMember}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Save Changes</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => setEliteMemberMenuVisible(false)}
               style={({ pressed }) => [
                 styles.closeButton,
                 pressed && styles.pressed,
