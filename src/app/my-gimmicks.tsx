@@ -13,6 +13,7 @@ import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
 
 const GIMMICKS_STORAGE_KEY = "pokemon-gimmicks";
+const REGIONS_STORAGE_KEY = "pokemon-regions";
 const gimmickCategories = [
   "Transformation",
   "Battle Effect",
@@ -21,11 +22,30 @@ const gimmickCategories = [
   "Ability Mechanic",
   "Other",
 ];
+const gimmickCategorySummaries: Record<string, string> = {
+  Transformation:
+    "Changes a Pokémon into a different form, usually giving it a new look, type, ability, or battle strength.",
+  "Battle Effect":
+    "Changes the rules or conditions of a battle, affecting both sides while the effect is active.",
+  "Move Mechanic":
+    "Adds a special way for Pokémon to use, combine, power up, or alter their moves.",
+  "Item Mechanic":
+    "Uses a special held item or battle item to unlock an effect during a battle.",
+  "Ability Mechanic":
+    "Gives Pokémon a new ability effect or changes how an existing ability works.",
+  Other:
+    "A custom battle idea that does not fit one of the standard gimmick categories.",
+};
 
 type Gimmick = {
   name: string;
   category: string;
   description: string;
+  regionNames: string[];
+};
+
+type StoredRegion = {
+  name?: string;
 };
 
 export default function MyGimmicksScreen() {
@@ -38,6 +58,9 @@ export default function MyGimmicksScreen() {
   const [gimmickName, setGimmickName] = useState("");
   const [gimmickCategory, setGimmickCategory] = useState("");
   const [gimmickDescription, setGimmickDescription] = useState("");
+  const [categorySummaryVisible, setCategorySummaryVisible] = useState(false);
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
+  const [selectedRegionNames, setSelectedRegionNames] = useState<string[]>([]);
   const theme = useTheme();
 
   useEffect(() => {
@@ -52,6 +75,7 @@ export default function MyGimmicksScreen() {
             name: gimmick.name ?? "",
             category: gimmick.category ?? "",
             description: gimmick.description ?? "",
+            regionNames: gimmick.regionNames ?? [],
           })),
         );
       } catch {
@@ -70,10 +94,38 @@ export default function MyGimmicksScreen() {
     }
   }, [gimmicks, hasLoadedGimmicks]);
 
+  function loadRegions() {
+    if (typeof window === "undefined") return;
+
+    const storedRegions = window.localStorage.getItem(REGIONS_STORAGE_KEY);
+    if (!storedRegions) {
+      setAvailableRegions([]);
+      return;
+    }
+
+    try {
+      const regions = JSON.parse(storedRegions) as StoredRegion[];
+      setAvailableRegions(
+        Array.from(
+          new Set(
+            regions
+              .map((region) => region.name?.trim())
+              .filter((name): name is string => Boolean(name)),
+          ),
+        ),
+      );
+    } catch {
+      setAvailableRegions([]);
+    }
+  }
+
   function openCreateMenu() {
     setGimmickName("");
     setGimmickCategory("");
     setGimmickDescription("");
+    setCategorySummaryVisible(false);
+    setSelectedRegionNames([]);
+    loadRegions();
     setEditingGimmickIndex(null);
     setMenuVisible(true);
   }
@@ -83,6 +135,9 @@ export default function MyGimmicksScreen() {
     setGimmickName(gimmick.name);
     setGimmickCategory(gimmick.category);
     setGimmickDescription(gimmick.description);
+    setCategorySummaryVisible(false);
+    setSelectedRegionNames(gimmick.regionNames);
+    loadRegions();
     setEditingGimmickIndex(index);
     setMenuVisible(true);
   }
@@ -95,6 +150,7 @@ export default function MyGimmicksScreen() {
       name,
       category: gimmickCategory,
       description: gimmickDescription.trim(),
+      regionNames: selectedRegionNames,
     };
 
     if (editingGimmickIndex === null) {
@@ -117,6 +173,31 @@ export default function MyGimmicksScreen() {
     );
     setMenuVisible(false);
   }
+
+  function toggleRegion(regionName: string) {
+    setSelectedRegionNames((currentRegions) =>
+      currentRegions.includes(regionName)
+        ? currentRegions.filter((name) => name !== regionName)
+        : [...currentRegions, regionName],
+    );
+  }
+
+  function toggleAllRegions() {
+    setSelectedRegionNames(
+      hasSelectedAllRegions ? [] : availableRegions,
+    );
+  }
+
+  function selectGimmickCategory(category: string) {
+    setGimmickCategory(category);
+    setCategorySummaryVisible(true);
+  }
+
+  const hasSelectedAllRegions =
+    availableRegions.length > 0 &&
+    availableRegions.every((regionName) =>
+      selectedRegionNames.includes(regionName),
+    );
 
   return (
     <ThemedView style={styles.container}>
@@ -161,6 +242,11 @@ export default function MyGimmicksScreen() {
                     {gimmick.description ? (
                       <ThemedText type="small" style={styles.description}>
                         {gimmick.description}
+                      </ThemedText>
+                    ) : null}
+                    {gimmick.regionNames.length > 0 ? (
+                      <ThemedText type="small" style={styles.regionSummary}>
+                        Used in: {gimmick.regionNames.join(", ")}
                       </ThemedText>
                     ) : null}
                   </View>
@@ -225,7 +311,7 @@ export default function MyGimmicksScreen() {
                 {gimmickCategories.map((category) => (
                   <Pressable
                     key={category}
-                    onPress={() => setGimmickCategory(category)}
+                    onPress={() => selectGimmickCategory(category)}
                     style={[
                       styles.categoryOption,
                       gimmickCategory === category && styles.selectedOption,
@@ -235,6 +321,27 @@ export default function MyGimmicksScreen() {
                   </Pressable>
                 ))}
               </View>
+              {categorySummaryVisible && gimmickCategory ? (
+                <ThemedView type="backgroundElement" style={styles.categorySummary}>
+                  <View style={styles.categorySummaryText}>
+                    <ThemedText type="smallBold">{gimmickCategory}</ThemedText>
+                    <ThemedText type="small">
+                      {gimmickCategorySummaries[gimmickCategory]}
+                    </ThemedText>
+                  </View>
+                  <Pressable
+                    accessibilityLabel="Close category summary"
+                    accessibilityRole="button"
+                    onPress={() => setCategorySummaryVisible(false)}
+                    style={({ pressed }) => [
+                      styles.summaryCloseButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Got it</ThemedText>
+                  </Pressable>
+                </ThemedView>
+              ) : null}
             </View>
 
             <View style={styles.fieldGroup}>
@@ -249,6 +356,46 @@ export default function MyGimmicksScreen() {
                 textAlignVertical="top"
                 value={gimmickDescription}
               />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Use In Regions</ThemedText>
+              {availableRegions.length > 0 ? (
+                <>
+                  <Pressable
+                    onPress={toggleAllRegions}
+                    style={[
+                      styles.allRegionsButton,
+                      hasSelectedAllRegions && styles.selectedOption,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">
+                      {hasSelectedAllRegions
+                        ? "Clear All Regions"
+                        : "Add To All Regions"}
+                    </ThemedText>
+                  </Pressable>
+                  <View style={styles.regionOptions}>
+                    {availableRegions.map((regionName) => (
+                      <Pressable
+                        key={regionName}
+                        onPress={() => toggleRegion(regionName)}
+                        style={[
+                          styles.regionOption,
+                          selectedRegionNames.includes(regionName) &&
+                            styles.selectedOption,
+                        ]}
+                      >
+                        <ThemedText type="small">{regionName}</ThemedText>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <ThemedText type="small" style={styles.noRegionsText}>
+                  Create a region first to use this gimmick in it.
+                </ThemedText>
+              )}
             </View>
 
             <Pressable
@@ -352,6 +499,9 @@ const styles = StyleSheet.create({
   description: {
     opacity: 0.78,
   },
+  regionSummary: {
+    opacity: 0.62,
+  },
   addButton: {
     position: "absolute",
     top: 8,
@@ -414,6 +564,50 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  categorySummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 8,
+  },
+  categorySummaryText: {
+    flex: 1,
+    gap: 4,
+  },
+  summaryCloseButton: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  regionOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  allRegionsButton: {
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  regionOption: {
+    minWidth: 136,
+    minHeight: 40,
+    flexGrow: 1,
+    flexBasis: "30%",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  noRegionsText: {
+    opacity: 0.7,
   },
   selectedOption: {
     backgroundColor: "rgba(60, 135, 247, 0.8)",

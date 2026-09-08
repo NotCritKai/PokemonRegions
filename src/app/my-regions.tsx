@@ -24,6 +24,7 @@ type Region = {
   routes: string;
   routeNames: string[];
   routePokemon: Record<string, RoutePokemon[]>;
+  gyms: string[];
 };
 type RoutePokemon = {
   name: string;
@@ -31,6 +32,7 @@ type RoutePokemon = {
 };
 const biomes = ["Grassland", "Mountain", "Ocean", "Forest", "Desert", "Tundra"];
 const routeCounts = Array.from({ length: 39 }, (_, index) => String(index + 1));
+const gymCounts = Array.from({ length: 8 }, (_, index) => String(index + 1));
 const pokemonTypes = [
   "normal",
   "fire",
@@ -62,6 +64,14 @@ function getPokemonImageUrl(url: string) {
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemonId}.png`;
 }
 
+function getSuggestedGymCount(routeCount: number) {
+  if (routeCount <= 0) return 0;
+  if (routeCount <= 5) return 2;
+  if (routeCount <= 10) return 4;
+  if (routeCount <= 17) return 6;
+  return 8;
+}
+
 export default function MyRegionsScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [regionName, setRegionName] = useState("");
@@ -78,6 +88,15 @@ export default function MyRegionsScreen() {
   const [contentRegionIndex, setContentRegionIndex] = useState<number | null>(
     null,
   );
+  const [routesExpanded, setRoutesExpanded] = useState(false);
+  const [gymsExpanded, setGymsExpanded] = useState(false);
+  const [eliteFourExpanded, setEliteFourExpanded] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(false);
+  const [gymCountMenuVisible, setGymCountMenuVisible] = useState(false);
+  const [customGymCount, setCustomGymCount] = useState("");
+  const [gymContentMenuVisible, setGymContentMenuVisible] = useState(false);
+  const [editingGymIndex, setEditingGymIndex] = useState<number | null>(null);
+  const [gymName, setGymName] = useState("");
   const [routeContentMenuVisible, setRouteContentMenuVisible] = useState(false);
   const [selectedRouteName, setSelectedRouteName] = useState("");
   const [selectedRoutePokemon, setSelectedRoutePokemon] = useState<
@@ -107,6 +126,7 @@ export default function MyRegionsScreen() {
             routes: region.routes ?? "",
             routeNames: region.routeNames ?? [],
             routePokemon: region.routePokemon ?? {},
+            gyms: region.gyms ?? [],
           })),
         );
       } catch {
@@ -161,6 +181,11 @@ export default function MyRegionsScreen() {
 
   function openContentMenu(index: number) {
     setContentRegionIndex(index);
+    setRoutesExpanded(false);
+    setGymsExpanded(false);
+    setEliteFourExpanded(false);
+    setMapExpanded(false);
+    setGymCountMenuVisible(false);
     setContentMenuVisible(true);
   }
 
@@ -211,6 +236,90 @@ export default function MyRegionsScreen() {
     );
   }
 
+  function addGyms(amount: number) {
+    if (contentRegionIndex === null || amount <= 0) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) => {
+        if (index !== contentRegionIndex) return region;
+
+        const gyms = region.gyms ?? [];
+        const numberToAdd = Math.min(amount, 8 - gyms.length);
+        if (numberToAdd <= 0) return region;
+
+        return {
+          ...region,
+          gyms: [
+            ...gyms,
+            ...Array.from(
+              { length: numberToAdd },
+              (_, gymIndex) => `Gym ${gyms.length + gymIndex + 1}`,
+            ),
+          ],
+        };
+      }),
+    );
+  }
+
+  function addSuggestedGyms() {
+    const suggestedGymCount = getSuggestedGymCount(activeRouteLimit);
+    addGyms(suggestedGymCount - activeGymNames.length);
+  }
+
+  function openCustomGymMenu() {
+    setCustomGymCount("");
+    setGymCountMenuVisible(true);
+  }
+
+  function addCustomGyms() {
+    addGyms(Number(customGymCount));
+    setGymCountMenuVisible(false);
+  }
+
+  function openGymMenu(index: number) {
+    setEditingGymIndex(index);
+    setGymName(activeGymNames[index] ?? "");
+    setGymContentMenuVisible(true);
+  }
+
+  function saveGym() {
+    if (contentRegionIndex === null || editingGymIndex === null) return;
+
+    const name = gymName.trim() || `Gym ${editingGymIndex + 1}`;
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) =>
+        index === contentRegionIndex
+          ? {
+              ...region,
+              gyms: region.gyms.map((gym, gymIndex) =>
+                gymIndex === editingGymIndex ? name : gym,
+              ),
+            }
+          : region,
+      ),
+    );
+    setGymContentMenuVisible(false);
+  }
+
+  function removeGym(gymIndex: number) {
+    if (contentRegionIndex === null) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) => {
+        if (index !== contentRegionIndex) return region;
+
+        return {
+          ...region,
+          gyms: region.gyms
+            .filter((_, currentIndex) => currentIndex !== gymIndex)
+            .map((name, currentIndex) =>
+              name.startsWith("Gym ") ? `Gym ${currentIndex + 1}` : name,
+            ),
+        };
+      }),
+    );
+  }
+
   function openRouteMenu(routeName: string) {
     setSelectedRouteName(routeName);
     setRouteContentMenuVisible(true);
@@ -236,6 +345,7 @@ export default function MyRegionsScreen() {
         routes: routeCount,
         routeNames: [],
         routePokemon: {},
+        gyms: [],
       },
     ]);
     setMenuVisible(false);
@@ -255,6 +365,7 @@ export default function MyRegionsScreen() {
               routes: routeCount,
               routeNames: region.routeNames ?? [],
               routePokemon: region.routePokemon ?? {},
+              gyms: region.gyms ?? [],
             }
           : region,
       ),
@@ -319,9 +430,14 @@ export default function MyRegionsScreen() {
   const activeContentRegion =
     contentRegionIndex === null ? null : regions[contentRegionIndex];
   const activeRouteNames = activeContentRegion?.routeNames ?? [];
+  const activeGymNames = activeContentRegion?.gyms ?? [];
   const activeRouteLimit = Number(activeContentRegion?.routes);
   const canAddRoute =
     activeRouteLimit <= 0 || activeRouteNames.length < activeRouteLimit;
+  const suggestedGymCount = getSuggestedGymCount(activeRouteLimit);
+  const canAddSuggestedGyms =
+    suggestedGymCount > 0 && activeGymNames.length < suggestedGymCount;
+  const remainingGymSlots = 8 - activeGymNames.length;
 
   return (
     <ThemedView style={styles.container}>
@@ -534,56 +650,268 @@ export default function MyRegionsScreen() {
                 ? "Content"
                 : `Content - ${regions[contentRegionIndex]?.name ?? "Region"}`}
             </ThemedText>
-            <ScrollView
-              style={styles.contentRouteList}
-              contentContainerStyle={styles.contentRouteContent}
-              showsVerticalScrollIndicator
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setRoutesExpanded((expanded) => !expanded)}
+              style={styles.contentDropdownHeader}
             >
-              {activeRouteNames.map((routeName, routeIndex) => (
-                <View
-                  key={`${routeName}-${routeIndex}`}
-                  style={styles.routeActionRow}
+              <ThemedText type="smallBold">Routes</ThemedText>
+              <ThemedText type="smallBold">
+                {routesExpanded ? "−" : "+"}
+              </ThemedText>
+            </Pressable>
+            {routesExpanded ? (
+              <View style={styles.contentDropdownContent}>
+                <ScrollView
+                  style={styles.contentRouteList}
+                  contentContainerStyle={styles.contentRouteContent}
+                  showsVerticalScrollIndicator
                 >
+                  {activeRouteNames.map((routeName, routeIndex) => (
+                    <View
+                      key={`${routeName}-${routeIndex}`}
+                      style={styles.routeActionRow}
+                    >
+                      <Pressable
+                        accessibilityLabel={routeName}
+                        accessibilityRole="button"
+                        onPress={() => openRouteMenu(routeName)}
+                        style={({ pressed }) => [
+                          styles.routeOptionButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="small">{routeName}</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`Remove ${routeName}`}
+                        accessibilityRole="button"
+                        onPress={() => removeRoute(routeIndex)}
+                        style={({ pressed }) => [
+                          styles.removeRouteButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">Remove</ThemedText>
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
+                <Pressable
+                  onPress={addRoute}
+                  disabled={!canAddRoute}
+                  style={({ pressed }) => [
+                    styles.createMenuButton,
+                    !canAddRoute && styles.disabledButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">
+                    {canAddRoute ? "Add All Routes" : "Route Limit Reached"}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setGymsExpanded((expanded) => !expanded)}
+              style={styles.contentDropdownHeader}
+            >
+              <ThemedText type="smallBold">Gyms</ThemedText>
+              <ThemedText type="smallBold">
+                {gymsExpanded ? "−" : "+"}
+              </ThemedText>
+            </Pressable>
+            {gymsExpanded ? (
+              <View style={styles.contentDropdownContent}>
+                <View style={styles.gymActions}>
                   <Pressable
-                    accessibilityLabel={routeName}
-                    accessibilityRole="button"
-                    onPress={() => openRouteMenu(routeName)}
+                    onPress={addSuggestedGyms}
+                    disabled={!canAddSuggestedGyms}
                     style={({ pressed }) => [
-                      styles.routeOptionButton,
+                      styles.gymActionButton,
+                      !canAddSuggestedGyms && styles.disabledButton,
                       pressed && styles.pressed,
                     ]}
                   >
-                    <ThemedText type="small">{routeName}</ThemedText>
+                    <ThemedText type="smallBold">
+                      {canAddSuggestedGyms
+                        ? `Add Suggested Gyms (${suggestedGymCount})`
+                        : suggestedGymCount === 0
+                          ? "Set Routes First"
+                          : "Suggested Gyms Added"}
+                    </ThemedText>
                   </Pressable>
                   <Pressable
-                    accessibilityLabel={`Remove ${routeName}`}
-                    accessibilityRole="button"
-                    onPress={() => removeRoute(routeIndex)}
+                    onPress={openCustomGymMenu}
+                    disabled={remainingGymSlots <= 0}
                     style={({ pressed }) => [
-                      styles.removeRouteButton,
+                      styles.gymActionButton,
+                      remainingGymSlots <= 0 && styles.disabledButton,
                       pressed && styles.pressed,
                     ]}
                   >
-                    <ThemedText type="smallBold">Remove</ThemedText>
+                    <ThemedText type="smallBold">Add Custom Gyms</ThemedText>
                   </Pressable>
                 </View>
-              ))}
-            </ScrollView>
+                <ScrollView
+                  style={styles.contentRouteList}
+                  contentContainerStyle={styles.contentRouteContent}
+                  showsVerticalScrollIndicator
+                >
+                  {activeGymNames.map((gymName, gymIndex) => (
+                    <View key={`${gymName}-${gymIndex}`} style={styles.routeActionRow}>
+                      <Pressable
+                        accessibilityLabel={`Edit ${gymName}`}
+                        accessibilityRole="button"
+                        onPress={() => openGymMenu(gymIndex)}
+                        style={({ pressed }) => [
+                          styles.routeOptionButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="small">{gymName}</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`Remove ${gymName}`}
+                        accessibilityRole="button"
+                        onPress={() => removeGym(gymIndex)}
+                        style={({ pressed }) => [
+                          styles.removeRouteButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">Remove</ThemedText>
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
             <Pressable
-              onPress={addRoute}
-              disabled={!canAddRoute}
+              accessibilityRole="button"
+              onPress={() => setEliteFourExpanded((expanded) => !expanded)}
+              style={styles.contentDropdownHeader}
+            >
+              <ThemedText type="smallBold">Elite 4 / Champion</ThemedText>
+              <ThemedText type="smallBold">
+                {eliteFourExpanded ? "−" : "+"}
+              </ThemedText>
+            </Pressable>
+            {eliteFourExpanded ? (
+              <View style={styles.emptyDropdownContent} />
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setMapExpanded((expanded) => !expanded)}
+              style={styles.contentDropdownHeader}
+            >
+              <ThemedText type="smallBold">Map</ThemedText>
+              <ThemedText type="smallBold">
+                {mapExpanded ? "−" : "+"}
+              </ThemedText>
+            </Pressable>
+            {mapExpanded ? <View style={styles.emptyDropdownContent} /> : null}
+            <Pressable
+              onPress={() => setContentMenuVisible(false)}
               style={({ pressed }) => [
-                styles.createMenuButton,
-                !canAddRoute && styles.disabledButton,
+                styles.closeButton,
                 pressed && styles.pressed,
               ]}
             >
-              <ThemedText type="smallBold">
-                {canAddRoute ? "Add All Routes" : "Route Limit Reached"}
-              </ThemedText>
+              <ThemedText type="smallBold">Close</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setGymCountMenuVisible(false)}
+        transparent
+        visible={gymCountMenuVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.gymCountMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              Add Custom Gyms
+            </ThemedText>
+            <ThemedText type="smallBold">How many gyms?</ThemedText>
+            <View style={styles.gymCountGrid}>
+              {gymCounts.map((count) => {
+                const exceedsLimit = Number(count) > remainingGymSlots;
+                return (
+                  <Pressable
+                    key={count}
+                    disabled={exceedsLimit}
+                    onPress={() => setCustomGymCount(count)}
+                    style={[
+                      styles.gymCountOption,
+                      customGymCount === count && styles.selectedDropdown,
+                      exceedsLimit && styles.disabledButton,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">{count}</ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              disabled={!customGymCount}
+              onPress={addCustomGyms}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                !customGymCount && styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Add Gyms</ThemedText>
             </Pressable>
             <Pressable
-              onPress={() => setContentMenuVisible(false)}
+              onPress={() => setGymCountMenuVisible(false)}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Close</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setGymContentMenuVisible(false)}
+        transparent
+        visible={gymContentMenuVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.gymEditMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              Edit Gym
+            </ThemedText>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Gym Name</ThemedText>
+              <TextInput
+                placeholder="e.x. Boulder Gym"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                onChangeText={setGymName}
+                style={styles.input}
+                value={gymName}
+              />
+            </View>
+            <Pressable
+              onPress={saveGym}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Save Changes</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => setGymContentMenuVisible(false)}
               style={({ pressed }) => [
                 styles.closeButton,
                 pressed && styles.pressed,
@@ -938,6 +1266,63 @@ const styles = StyleSheet.create({
   },
   contentRouteContent: {
     gap: 8,
+  },
+  contentDropdownHeader: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  contentDropdownContent: {
+    gap: 12,
+    paddingTop: 4,
+  },
+  gymActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  gymActionButton: {
+    minHeight: 44,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: "rgba(60, 135, 247, 0.8)",
+  },
+  emptyDropdownContent: {
+    minHeight: 8,
+  },
+  gymCountMenu: {
+    width: "100%",
+    maxWidth: 440,
+    gap: 16,
+    padding: 24,
+    borderRadius: 16,
+  },
+  gymCountGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+  },
+  gymCountOption: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  gymEditMenu: {
+    width: "100%",
+    maxWidth: 480,
+    gap: 16,
+    padding: 24,
+    borderRadius: 16,
   },
   routeOptionButton: {
     flex: 1,
