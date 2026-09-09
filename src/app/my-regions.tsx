@@ -220,10 +220,6 @@ export default function MyRegionsScreen() {
   const [regionType, setRegionType] = useState("");
   const [routeCount, setRouteCount] = useState("");
   const [routeMenuVisible, setRouteMenuVisible] = useState(false);
-  const [dataMenuVisible, setDataMenuVisible] = useState(false);
-  const [dataMode, setDataMode] = useState<"export" | "import">("export");
-  const [transferText, setTransferText] = useState("");
-  const [transferError, setTransferError] = useState(false);
   const [regions, setRegions] = useState<Region[]>([]);
   const [hasLoadedRegions, setHasLoadedRegions] = useState(false);
   const [editingRegionIndex, setEditingRegionIndex] = useState<number | null>(
@@ -571,50 +567,6 @@ export default function MyRegionsScreen() {
     setRouteMenuVisible(false);
     setEditingRegionIndex(null);
     setMenuVisible(true);
-  }
-
-  function openExportMenu() {
-    setDataMode("export");
-    setTransferError(false);
-    setTransferText(JSON.stringify(regions, null, 2));
-    setDataMenuVisible(true);
-  }
-
-  function openImportMenu() {
-    setDataMode("import");
-    setTransferError(false);
-    setTransferText("");
-    setDataMenuVisible(true);
-  }
-
-  function importRegions() {
-    try {
-      const importedRegions = JSON.parse(transferText) as Partial<Region>[];
-      if (!Array.isArray(importedRegions)) throw new Error("Invalid data");
-
-      setRegions(
-        importedRegions.map((region) => ({
-          name: region.name ?? "",
-          rivalName: region.rivalName ?? "",
-          type: region.type ?? "",
-          routes: region.routes ?? "",
-          routeNames: region.routeNames ?? [],
-          routePokemon: region.routePokemon ?? {},
-          routeDetails: region.routeDetails ?? {},
-          gyms: region.gyms ?? [],
-          gymPokemon: region.gymPokemon ?? [],
-          gymDetails: region.gymDetails ?? [],
-          eliteFour: region.eliteFour ?? [],
-          eliteFourPokemon: region.eliteFourPokemon ?? [],
-          champion: region.champion ?? null,
-          championPokemon: region.championPokemon ?? [],
-          mapPositions: region.mapPositions ?? {},
-        })),
-      );
-      setDataMenuVisible(false);
-    } catch {
-      setTransferError(true);
-    }
   }
 
   function openEditMenu(index: number) {
@@ -1396,7 +1348,14 @@ export default function MyRegionsScreen() {
           region.routePokemon && typeof region.routePokemon === "object"
             ? (region.routePokemon as Record<string, RoutePokemon[]>)
             : {},
+        routeDetails:
+          region.routeDetails && typeof region.routeDetails === "object"
+            ? (region.routeDetails as Record<string, RouteDetails>)
+            : {},
         gyms: Array.isArray(region.gyms) ? region.gyms : [],
+        gymDetails: Array.isArray(region.gymDetails)
+          ? region.gymDetails
+          : [],
         gymPokemon: Array.isArray(region.gymPokemon) ? region.gymPokemon : [],
         eliteFour: Array.isArray(region.eliteFour) ? region.eliteFour : [],
         eliteFourPokemon: Array.isArray(region.eliteFourPokemon)
@@ -3434,6 +3393,21 @@ const styles = StyleSheet.create({
     maxWidth: 440,
     gap: 12,
     alignItems: "stretch",
+  },
+  overviewGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 20,
+  },
+  overviewStat: {
+    minWidth: 120,
+    flexGrow: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    gap: 6,
   },
   emptyImportExportButton: {
     minHeight: 46,
