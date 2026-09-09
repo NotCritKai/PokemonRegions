@@ -1120,6 +1120,29 @@ export default function MyPokemonScreen() {
   );
 }
 
+function TextInputField({
+  label,
+  value,
+  onChangeText,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+}) {
+  return (
+    <View style={styles.fieldGroup}>
+      <ThemedText type="smallBold">{label}</ThemedText>
+      <TextInput
+        onChangeText={onChangeText}
+        placeholder={label}
+        placeholderTextColor="rgba(255, 255, 255, 0.6)"
+        style={styles.input}
+        value={value}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
