@@ -1,7 +1,8 @@
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+    Animated,
     Modal,
     Pressable,
     ScrollView,
@@ -16,6 +17,7 @@ import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
 
 const REGIONS_STORAGE_KEY = "pokemon-regions";
+const MAX_TEAM_POKEMON = 6;
 
 type Region = {
   name: string;
@@ -25,12 +27,91 @@ type Region = {
   routeNames: string[];
   routePokemon: Record<string, RoutePokemon[]>;
   gyms: string[];
+  gymPokemon: TeamPokemon[][];
   eliteFour: string[];
+  eliteFourPokemon: TeamPokemon[][];
   champion: string | null;
+  championPokemon: TeamPokemon[];
+  mapPositions: Record<string, MapPosition>;
 };
 type RoutePokemon = {
   name: string;
   percentage: string;
+};
+type TeamPokemon = {
+  name: string;
+  moves: string[];
+};
+type MapPosition = {
+  x: number;
+  y: number;
+};
+const biomeMapThemes: Record<
+  string,
+  {
+    base: string;
+    water: string;
+    forest: string;
+    highlands: string;
+    path: string;
+    pathLight: string;
+    pathDark: string;
+  }
+> = {
+  Grassland: {
+    base: "#6b9f67",
+    water: "rgba(77, 157, 190, 0.72)",
+    forest: "rgba(38, 104, 62, 0.72)",
+    highlands: "rgba(168, 145, 88, 0.26)",
+    path: "#b88b52",
+    pathLight: "#d2ad72",
+    pathDark: "#a97943",
+  },
+  Mountain: {
+    base: "#898b86",
+    water: "rgba(83, 133, 151, 0.7)",
+    forest: "rgba(49, 78, 63, 0.72)",
+    highlands: "rgba(207, 201, 178, 0.42)",
+    path: "#89745d",
+    pathLight: "#b5a181",
+    pathDark: "#6d5b49",
+  },
+  Ocean: {
+    base: "#d4b477",
+    water: "#4f9fb4",
+    forest: "rgba(88, 139, 111, 0.48)",
+    highlands: "rgba(239, 211, 145, 0.64)",
+    path: "#ad8450",
+    pathLight: "#d1a86d",
+    pathDark: "#93683d",
+  },
+  Forest: {
+    base: "#4f8757",
+    water: "rgba(70, 137, 150, 0.68)",
+    forest: "rgba(24, 75, 44, 0.78)",
+    highlands: "rgba(109, 137, 74, 0.34)",
+    path: "#967044",
+    pathLight: "#bd965a",
+    pathDark: "#765331",
+  },
+  Desert: {
+    base: "#d8b56d",
+    water: "rgba(79, 151, 165, 0.62)",
+    forest: "rgba(137, 118, 52, 0.42)",
+    highlands: "rgba(239, 213, 139, 0.58)",
+    path: "#a8743c",
+    pathLight: "#d2a25e",
+    pathDark: "#875729",
+  },
+  Tundra: {
+    base: "#d6e2df",
+    water: "rgba(106, 165, 188, 0.72)",
+    forest: "rgba(104, 143, 145, 0.52)",
+    highlands: "rgba(242, 248, 244, 0.68)",
+    path: "#91a8ad",
+    pathLight: "#c4d8d8",
+    pathDark: "#718c94",
+  },
 };
 const biomes = ["Grassland", "Mountain", "Ocean", "Forest", "Desert", "Tundra"];
 const routeCounts = Array.from({ length: 39 }, (_, index) => String(index + 1));
@@ -94,11 +175,32 @@ export default function MyRegionsScreen() {
   const [gymsExpanded, setGymsExpanded] = useState(false);
   const [eliteFourExpanded, setEliteFourExpanded] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const contentReveal = useRef(new Animated.Value(1)).current;
+  const [mapPositions, setMapPositions] = useState<Record<string, MapPosition>>(
+    {},
+  );
+  const mapDragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    origin: MapPosition;
+  } | null>(null);
+  const mapPositionsRef = useRef<Record<string, MapPosition>>({});
   const [gymCountMenuVisible, setGymCountMenuVisible] = useState(false);
   const [customGymCount, setCustomGymCount] = useState("");
   const [gymContentMenuVisible, setGymContentMenuVisible] = useState(false);
   const [editingGymIndex, setEditingGymIndex] = useState<number | null>(null);
   const [gymName, setGymName] = useState("");
+  const [teamMenuVisible, setTeamMenuVisible] = useState(false);
+  const [teamKind, setTeamKind] = useState<
+    "gym" | "eliteFour" | "champion" | null
+  >(null);
+  const [teamIndex, setTeamIndex] = useState<number | null>(null);
+  const [teamPokemon, setTeamPokemon] = useState<TeamPokemon[]>([]);
+  const [teamPokemonMenuIndex, setTeamPokemonMenuIndex] = useState<
+    number | null
+  >(null);
+  const [teamPokemonSearch, setTeamPokemonSearch] = useState("");
   const [eliteMemberMenuVisible, setEliteMemberMenuVisible] = useState(false);
   const [editingEliteKind, setEditingEliteKind] = useState<
     "eliteFour" | "champion" | null
@@ -107,6 +209,10 @@ export default function MyRegionsScreen() {
     null,
   );
   const [eliteMemberName, setEliteMemberName] = useState("");
+  const [eliteCreationKind, setEliteCreationKind] = useState<
+    "eliteFour" | "champion" | null
+  >(null);
+  const [eliteCreationNames, setEliteCreationNames] = useState<string[]>([]);
   const [routeContentMenuVisible, setRouteContentMenuVisible] = useState(false);
   const [selectedRouteName, setSelectedRouteName] = useState("");
   const [selectedRoutePokemon, setSelectedRoutePokemon] = useState<
@@ -137,8 +243,12 @@ export default function MyRegionsScreen() {
             routeNames: region.routeNames ?? [],
             routePokemon: region.routePokemon ?? {},
             gyms: region.gyms ?? [],
+            gymPokemon: region.gymPokemon ?? [],
             eliteFour: region.eliteFour ?? [],
+            eliteFourPokemon: region.eliteFourPokemon ?? [],
             champion: region.champion ?? null,
+            championPokemon: region.championPokemon ?? [],
+            mapPositions: region.mapPositions ?? {},
           })),
         );
       } catch {
@@ -193,12 +303,68 @@ export default function MyRegionsScreen() {
 
   function openContentMenu(index: number) {
     setContentRegionIndex(index);
+    const positions = regions[index]?.mapPositions ?? {};
+    setMapPositions(positions);
+    mapPositionsRef.current = positions;
     setRoutesExpanded(false);
     setGymsExpanded(false);
     setEliteFourExpanded(false);
     setMapExpanded(false);
     setGymCountMenuVisible(false);
     setContentMenuVisible(true);
+  }
+
+  function toggleContentSection(
+    section: "routes" | "gyms" | "eliteFour" | "map",
+  ) {
+    const isOpen =
+      section === "routes"
+        ? routesExpanded
+        : section === "gyms"
+          ? gymsExpanded
+          : section === "eliteFour"
+            ? eliteFourExpanded
+            : mapExpanded;
+
+    if (!isOpen) {
+      contentReveal.stopAnimation();
+      contentReveal.setValue(0);
+      Animated.timing(contentReveal, {
+        toValue: 1,
+        duration: 680,
+        easing: undefined,
+        useNativeDriver: true,
+      }).start();
+    }
+
+    setRoutesExpanded(section === "routes" ? (expanded) => !expanded : false);
+    setGymsExpanded(section === "gyms" ? (expanded) => !expanded : false);
+    setEliteFourExpanded(
+      section === "eliteFour" ? (expanded) => !expanded : false,
+    );
+    setMapExpanded(section === "map" ? (expanded) => !expanded : false);
+  }
+
+  function getWaterfallStyle(index: number, total: number) {
+    const start = total > 1 ? Math.min(0.72, (index / total) * 0.72) : 0;
+    const end = Math.min(1, start + 0.28);
+
+    return {
+      opacity: contentReveal.interpolate({
+        inputRange: [start, end],
+        outputRange: [0, 1],
+        extrapolate: "clamp",
+      }),
+      transform: [
+        {
+          translateY: contentReveal.interpolate({
+            inputRange: [start, end],
+            outputRange: [-18, 0],
+            extrapolate: "clamp",
+          }),
+        },
+      ],
+    };
   }
 
   function addRoute() {
@@ -268,6 +434,10 @@ export default function MyRegionsScreen() {
               (_, gymIndex) => `Gym ${gyms.length + gymIndex + 1}`,
             ),
           ],
+          gymPokemon: [
+            ...(region.gymPokemon ?? []),
+            ...Array.from({ length: numberToAdd }, () => []),
+          ],
         };
       }),
     );
@@ -292,6 +462,89 @@ export default function MyRegionsScreen() {
     setEditingGymIndex(index);
     setGymName(activeGymNames[index] ?? "");
     setGymContentMenuVisible(true);
+  }
+
+  function openTeamMenu(
+    kind: "gym" | "eliteFour" | "champion",
+    index?: number,
+  ) {
+    const selectedIndex = index ?? 0;
+    const region = activeContentRegion;
+    if (!region) return;
+
+    const selectedTeam =
+      kind === "gym"
+        ? (region.gymPokemon[selectedIndex] ?? [])
+        : kind === "eliteFour"
+          ? (region.eliteFourPokemon[selectedIndex] ?? [])
+          : region.championPokemon;
+    setTeamKind(kind);
+    setTeamIndex(kind === "champion" ? null : selectedIndex);
+    setTeamPokemon(selectedTeam);
+    setTeamPokemonMenuIndex(null);
+    setTeamPokemonSearch("");
+    setTeamMenuVisible(true);
+  }
+
+  function addTeamPokemon() {
+    if (teamPokemon.length >= MAX_TEAM_POKEMON) return;
+
+    setTeamPokemon((currentPokemon) => [
+      ...currentPokemon,
+      { name: "", moves: ["", "", "", ""] },
+    ]);
+  }
+
+  function updateTeamPokemon(index: number, changes: Partial<TeamPokemon>) {
+    setTeamPokemon((currentPokemon) =>
+      currentPokemon.map((pokemon, pokemonIndex) =>
+        pokemonIndex === index ? { ...pokemon, ...changes } : pokemon,
+      ),
+    );
+  }
+
+  function updateTeamMove(
+    pokemonIndex: number,
+    moveIndex: number,
+    move: string,
+  ) {
+    setTeamPokemon((currentPokemon) =>
+      currentPokemon.map((pokemon, currentPokemonIndex) =>
+        currentPokemonIndex === pokemonIndex
+          ? {
+              ...pokemon,
+              moves: pokemon.moves.map((currentMove, currentMoveIndex) =>
+                currentMoveIndex === moveIndex ? move : currentMove,
+              ),
+            }
+          : pokemon,
+      ),
+    );
+  }
+
+  function saveTeam() {
+    if (contentRegionIndex === null || teamKind === null) return;
+    const savedTeam = teamPokemon
+      .filter((pokemon) => pokemon.name)
+      .slice(0, MAX_TEAM_POKEMON);
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) => {
+        if (index !== contentRegionIndex) return region;
+        if (teamKind === "gym" && teamIndex !== null) {
+          const gymPokemon = [...region.gymPokemon];
+          gymPokemon[teamIndex] = savedTeam;
+          return { ...region, gymPokemon };
+        }
+        if (teamKind === "eliteFour" && teamIndex !== null) {
+          const eliteFourPokemon = [...region.eliteFourPokemon];
+          eliteFourPokemon[teamIndex] = savedTeam;
+          return { ...region, eliteFourPokemon };
+        }
+        return { ...region, championPokemon: savedTeam };
+      }),
+    );
+    setTeamMenuVisible(false);
   }
 
   function saveGym() {
@@ -327,6 +580,9 @@ export default function MyRegionsScreen() {
             .map((name, currentIndex) =>
               name.startsWith("Gym ") ? `Gym ${currentIndex + 1}` : name,
             ),
+          gymPokemon: region.gymPokemon.filter(
+            (_, currentIndex) => currentIndex !== gymIndex,
+          ),
         };
       }),
     );
@@ -334,46 +590,27 @@ export default function MyRegionsScreen() {
 
   function addEliteFour() {
     if (contentRegionIndex === null) return;
-
-    setRegions((currentRegions) =>
-      currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
-
-        const eliteFour = region.eliteFour ?? [];
-        const numberToAdd = Math.min(4 - eliteFour.length, 4);
-        if (numberToAdd <= 0) return region;
-
-        return {
-          ...region,
-          eliteFour: [
-            ...eliteFour,
-            ...Array.from(
-              { length: numberToAdd },
-              (_, memberIndex) =>
-                `Elite 4 ${eliteFour.length + memberIndex + 1}`,
-            ),
-          ],
-        };
-      }),
-    );
+    setEditingEliteKind("eliteFour");
+    setEditingEliteIndex(null);
+    setEliteCreationKind("eliteFour");
+    setEliteCreationNames(["", "", "", ""]);
+    setEliteMemberMenuVisible(true);
   }
 
   function addChampion() {
     if (contentRegionIndex === null) return;
-
-    setRegions((currentRegions) =>
-      currentRegions.map((region, index) =>
-        index === contentRegionIndex && !region.champion
-          ? { ...region, champion: "Champion" }
-          : region,
-      ),
-    );
+    setEditingEliteKind("champion");
+    setEditingEliteIndex(null);
+    setEliteCreationKind("champion");
+    setEliteCreationNames([""]);
+    setEliteMemberMenuVisible(true);
   }
 
   function openEliteMemberMenu(
     kind: "eliteFour" | "champion",
     memberIndex?: number,
   ) {
+    setEliteCreationKind(null);
     if (kind === "eliteFour") {
       const index = memberIndex ?? 0;
       setEditingEliteKind("eliteFour");
@@ -390,9 +627,29 @@ export default function MyRegionsScreen() {
   function saveEliteMember() {
     if (contentRegionIndex === null || editingEliteKind === null) return;
 
+    if (eliteCreationKind !== null) {
+      const names = eliteCreationNames.map((name) => name.trim());
+      if (names.some((name) => !name)) return;
+
+      setRegions((currentRegions) =>
+        currentRegions.map((region, index) => {
+          if (index !== contentRegionIndex) return region;
+
+          return eliteCreationKind === "eliteFour"
+            ? {
+                ...region,
+                eliteFour: names.map((name) => `Elite: ${name}`),
+                eliteFourPokemon: names.map(() => []),
+              }
+            : { ...region, champion: `Champion: ${names[0]}` };
+        }),
+      );
+      setEliteMemberMenuVisible(false);
+      return;
+    }
+
     if (editingEliteKind === "eliteFour" && editingEliteIndex !== null) {
-      const name =
-        eliteMemberName.trim() || `Elite 4 ${editingEliteIndex + 1}`;
+      const name = eliteMemberName.trim() || `Elite 4 ${editingEliteIndex + 1}`;
       setRegions((currentRegions) =>
         currentRegions.map((region, index) =>
           index === contentRegionIndex
@@ -433,6 +690,9 @@ export default function MyRegionsScreen() {
                 ? `Elite 4 ${currentIndex + 1}`
                 : name,
             ),
+          eliteFourPokemon: region.eliteFourPokemon.filter(
+            (_, currentIndex) => currentIndex !== memberIndex,
+          ),
         };
       }),
     );
@@ -444,6 +704,109 @@ export default function MyRegionsScreen() {
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
         index === contentRegionIndex ? { ...region, champion: null } : region,
+      ),
+    );
+  }
+
+  function getDefaultMapPosition(index: number): MapPosition {
+    const columns = 6;
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const jitterX = ((index * 37) % 17) - 8;
+    const jitterY = ((index * 53) % 15) - 7;
+
+    return {
+      x: Math.max(8, Math.min(390, 10 + column * 76 + jitterX)),
+      y: Math.max(34, Math.min(462, 34 + row * 70 + jitterY)),
+    };
+  }
+
+  function getMapPosition(id: string, index: number) {
+    if (mapPositions[id]) return mapPositions[id];
+    if (id.startsWith("gym-")) {
+      const gymPositions = [
+        { x: 286, y: 42 },
+        { x: 322, y: 142 },
+        { x: 276, y: 264 },
+        { x: 174, y: 282 },
+        { x: 34, y: 252 },
+        { x: 20, y: 148 },
+        { x: 188, y: 74 },
+        { x: 122, y: 178 },
+      ];
+      return gymPositions[index % gymPositions.length];
+    }
+    return getDefaultMapPosition(index);
+  }
+
+  function getRouteConnectorStyle(from: MapPosition, to: MapPosition) {
+    const fromCenter = { x: from.x + 46, y: from.y + 31 };
+    const toCenter = { x: to.x + 46, y: to.y + 31 };
+    const deltaX = toCenter.x - fromCenter.x;
+    const deltaY = toCenter.y - fromCenter.y;
+    const length = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+
+    return {
+      left: fromCenter.x,
+      top: fromCenter.y - 7,
+      width: length,
+      transform: [{ rotate: `${Math.atan2(deltaY, deltaX)}rad` }],
+    };
+  }
+
+  function startMapDrag(
+    id: string,
+    position: MapPosition,
+    event: { nativeEvent: { pageX: number; pageY: number } },
+  ) {
+    mapDragRef.current = {
+      id,
+      startX: event.nativeEvent.pageX,
+      startY: event.nativeEvent.pageY,
+      origin: position,
+    };
+  }
+
+  function moveMapDrag(event: {
+    nativeEvent: { pageX: number; pageY: number };
+  }) {
+    const drag = mapDragRef.current;
+    if (!drag) return;
+
+    setMapPositions((currentPositions) => {
+      const nextPositions = {
+        ...currentPositions,
+        [drag.id]: {
+          x: Math.max(
+            8,
+            Math.min(
+              390,
+              drag.origin.x + event.nativeEvent.pageX - drag.startX,
+            ),
+          ),
+          y: Math.max(
+            8,
+            Math.min(
+              462,
+              drag.origin.y + event.nativeEvent.pageY - drag.startY,
+            ),
+          ),
+        },
+      };
+      mapPositionsRef.current = nextPositions;
+      return nextPositions;
+    });
+  }
+
+  function finishMapDrag() {
+    mapDragRef.current = null;
+    if (contentRegionIndex === null) return;
+
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) =>
+        index === contentRegionIndex
+          ? { ...region, mapPositions: mapPositionsRef.current }
+          : region,
       ),
     );
   }
@@ -474,8 +837,12 @@ export default function MyRegionsScreen() {
         routeNames: [],
         routePokemon: {},
         gyms: [],
+        gymPokemon: [],
         eliteFour: [],
+        eliteFourPokemon: [],
         champion: null,
+        championPokemon: [],
+        mapPositions: {},
       },
     ]);
     setMenuVisible(false);
@@ -496,8 +863,12 @@ export default function MyRegionsScreen() {
               routeNames: region.routeNames ?? [],
               routePokemon: region.routePokemon ?? {},
               gyms: region.gyms ?? [],
+              gymPokemon: region.gymPokemon ?? [],
               eliteFour: region.eliteFour ?? [],
+              eliteFourPokemon: region.eliteFourPokemon ?? [],
               champion: region.champion ?? null,
+              championPokemon: region.championPokemon ?? [],
+              mapPositions: region.mapPositions ?? {},
             }
           : region,
       ),
@@ -570,8 +941,13 @@ export default function MyRegionsScreen() {
   const canAddSuggestedGyms =
     suggestedGymCount > 0 && activeGymNames.length < suggestedGymCount;
   const remainingGymSlots = 8 - activeGymNames.length;
+  const activeGymPokemon = activeContentRegion?.gymPokemon ?? [];
   const activeEliteFourNames = activeContentRegion?.eliteFour ?? [];
+  const activeEliteFourPokemon = activeContentRegion?.eliteFourPokemon ?? [];
   const activeChampionName = activeContentRegion?.champion ?? null;
+  const mapTheme =
+    biomeMapThemes[activeContentRegion?.type ?? "Grassland"] ??
+    biomeMapThemes.Grassland;
   const canAddEliteFour = activeEliteFourNames.length < 4;
   const canAddChampion = !activeChampionName;
 
@@ -781,274 +1157,475 @@ export default function MyRegionsScreen() {
       >
         <View style={styles.modalOverlay}>
           <ThemedView type="backgroundElement" style={styles.contentMenu}>
-            <ThemedText type="subtitle" style={styles.menuTitle}>
-              {contentRegionIndex === null
-                ? "Content"
-                : `Content - ${regions[contentRegionIndex]?.name ?? "Region"}`}
-            </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setRoutesExpanded((expanded) => !expanded)}
-              style={styles.contentDropdownHeader}
+            <ScrollView
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              style={styles.contentMenuScroll}
+              contentContainerStyle={styles.contentMenuScrollContent}
             >
-              <ThemedText type="smallBold">Routes</ThemedText>
-              <ThemedText type="smallBold">
-                {routesExpanded ? "−" : "+"}
+              <ThemedText type="subtitle" style={styles.menuTitle}>
+                {contentRegionIndex === null
+                  ? "Content"
+                  : `Content - ${regions[contentRegionIndex]?.name ?? "Region"}`}
               </ThemedText>
-            </Pressable>
-            {routesExpanded ? (
-              <View style={styles.contentDropdownContent}>
-                <ScrollView
-                  style={styles.contentRouteList}
-                  contentContainerStyle={styles.contentRouteContent}
-                  showsVerticalScrollIndicator
-                >
-                  {activeRouteNames.map((routeName, routeIndex) => (
-                    <View
-                      key={`${routeName}-${routeIndex}`}
-                      style={styles.routeActionRow}
-                    >
-                      <Pressable
-                        accessibilityLabel={routeName}
-                        accessibilityRole="button"
-                        onPress={() => openRouteMenu(routeName)}
-                        style={({ pressed }) => [
-                          styles.routeOptionButton,
-                          pressed && styles.pressed,
-                        ]}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => toggleContentSection("routes")}
+                style={styles.contentDropdownHeader}
+              >
+                <ThemedText type="smallBold">Routes</ThemedText>
+                <ThemedText type="smallBold">
+                  {routesExpanded ? "−" : "+"}
+                </ThemedText>
+              </Pressable>
+              {routesExpanded ? (
+                <View style={styles.contentDropdownContent}>
+                  <ScrollView
+                    style={styles.contentRouteList}
+                    contentContainerStyle={styles.contentRouteContent}
+                    showsVerticalScrollIndicator
+                  >
+                    {activeRouteNames.map((routeName, routeIndex) => (
+                      <Animated.View
+                        key={`${routeName}-${routeIndex}`}
+                        style={getWaterfallStyle(
+                          routeIndex,
+                          activeRouteNames.length + 1,
+                        )}
                       >
-                        <ThemedText type="small">{routeName}</ThemedText>
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel={`Remove ${routeName}`}
-                        accessibilityRole="button"
-                        onPress={() => removeRoute(routeIndex)}
-                        style={({ pressed }) => [
-                          styles.removeRouteButton,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <ThemedText type="smallBold">Remove</ThemedText>
-                      </Pressable>
-                    </View>
-                  ))}
-                </ScrollView>
-                <Pressable
-                  onPress={addRoute}
-                  disabled={!canAddRoute}
-                  style={({ pressed }) => [
-                    styles.createMenuButton,
-                    !canAddRoute && styles.disabledButton,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <ThemedText type="smallBold">
-                    {canAddRoute ? "Add All Routes" : "Route Limit Reached"}
-                  </ThemedText>
-                </Pressable>
-              </View>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setGymsExpanded((expanded) => !expanded)}
-              style={styles.contentDropdownHeader}
-            >
-              <ThemedText type="smallBold">Gyms</ThemedText>
-              <ThemedText type="smallBold">
-                {gymsExpanded ? "−" : "+"}
-              </ThemedText>
-            </Pressable>
-            {gymsExpanded ? (
-              <View style={styles.contentDropdownContent}>
-                <View style={styles.gymActions}>
+                        <View style={styles.routeActionRow}>
+                          <Pressable
+                            accessibilityLabel={routeName}
+                            accessibilityRole="button"
+                            onPress={() => openRouteMenu(routeName)}
+                            style={({ pressed }) => [
+                              styles.routeOptionButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="small">{routeName}</ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Remove ${routeName}`}
+                            accessibilityRole="button"
+                            onPress={() => removeRoute(routeIndex)}
+                            style={({ pressed }) => [
+                              styles.removeRouteButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">Remove</ThemedText>
+                          </Pressable>
+                        </View>
+                      </Animated.View>
+                    ))}
+                  </ScrollView>
                   <Pressable
-                    onPress={addSuggestedGyms}
-                    disabled={!canAddSuggestedGyms}
+                    onPress={addRoute}
+                    disabled={!canAddRoute}
                     style={({ pressed }) => [
-                      styles.gymActionButton,
-                      !canAddSuggestedGyms && styles.disabledButton,
+                      styles.createMenuButton,
+                      !canAddRoute && styles.disabledButton,
                       pressed && styles.pressed,
                     ]}
                   >
                     <ThemedText type="smallBold">
-                      {canAddSuggestedGyms
-                        ? `Add Suggested Gyms (${suggestedGymCount})`
-                        : suggestedGymCount === 0
-                          ? "Set Routes First"
-                          : "Suggested Gyms Added"}
-                    </ThemedText>
-                  </Pressable>
-                  <Pressable
-                    onPress={openCustomGymMenu}
-                    disabled={remainingGymSlots <= 0}
-                    style={({ pressed }) => [
-                      styles.gymActionButton,
-                      remainingGymSlots <= 0 && styles.disabledButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">Add Custom Gyms</ThemedText>
-                  </Pressable>
-                </View>
-                <ScrollView
-                  style={styles.contentRouteList}
-                  contentContainerStyle={styles.contentRouteContent}
-                  showsVerticalScrollIndicator
-                >
-                  {activeGymNames.map((gymName, gymIndex) => (
-                    <View key={`${gymName}-${gymIndex}`} style={styles.routeActionRow}>
-                      <Pressable
-                        accessibilityLabel={`Edit ${gymName}`}
-                        accessibilityRole="button"
-                        onPress={() => openGymMenu(gymIndex)}
-                        style={({ pressed }) => [
-                          styles.routeOptionButton,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <ThemedText type="small">{gymName}</ThemedText>
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel={`Remove ${gymName}`}
-                        accessibilityRole="button"
-                        onPress={() => removeGym(gymIndex)}
-                        style={({ pressed }) => [
-                          styles.removeRouteButton,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <ThemedText type="smallBold">Remove</ThemedText>
-                      </Pressable>
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setEliteFourExpanded((expanded) => !expanded)}
-              style={styles.contentDropdownHeader}
-            >
-              <ThemedText type="smallBold">Elite 4 / Champion</ThemedText>
-              <ThemedText type="smallBold">
-                {eliteFourExpanded ? "−" : "+"}
-              </ThemedText>
-            </Pressable>
-            {eliteFourExpanded ? (
-              <View style={styles.contentDropdownContent}>
-                <View style={styles.gymActions}>
-                  <Pressable
-                    onPress={addEliteFour}
-                    disabled={!canAddEliteFour}
-                    style={({ pressed }) => [
-                      styles.gymActionButton,
-                      !canAddEliteFour && styles.disabledButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">
-                      {canAddEliteFour ? "Add Elite 4" : "Elite 4 Added"}
-                    </ThemedText>
-                  </Pressable>
-                  <Pressable
-                    onPress={addChampion}
-                    disabled={!canAddChampion}
-                    style={({ pressed }) => [
-                      styles.gymActionButton,
-                      !canAddChampion && styles.disabledButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">
-                      {canAddChampion ? "Add Champion" : "Champion Added"}
+                      {canAddRoute ? "Add All Routes" : "Route Limit Reached"}
                     </ThemedText>
                   </Pressable>
                 </View>
-                <ScrollView
-                  style={styles.contentRouteList}
-                  contentContainerStyle={styles.contentRouteContent}
-                  showsVerticalScrollIndicator
-                >
-                  {activeEliteFourNames.map((memberName, memberIndex) => (
-                    <View
-                      key={`${memberName}-${memberIndex}`}
-                      style={styles.routeActionRow}
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => toggleContentSection("gyms")}
+                style={styles.contentDropdownHeader}
+              >
+                <ThemedText type="smallBold">Gyms</ThemedText>
+                <ThemedText type="smallBold">
+                  {gymsExpanded ? "−" : "+"}
+                </ThemedText>
+              </Pressable>
+              {gymsExpanded ? (
+                <View style={styles.contentDropdownContent}>
+                  <View style={styles.gymActions}>
+                    <Pressable
+                      onPress={addSuggestedGyms}
+                      disabled={!canAddSuggestedGyms}
+                      style={({ pressed }) => [
+                        styles.gymActionButton,
+                        !canAddSuggestedGyms && styles.disabledButton,
+                        pressed && styles.pressed,
+                      ]}
                     >
+                      <ThemedText type="smallBold">
+                        {canAddSuggestedGyms
+                          ? `Add Suggested Gyms (${suggestedGymCount})`
+                          : suggestedGymCount === 0
+                            ? "Set Routes First"
+                            : "Suggested Gyms Added"}
+                      </ThemedText>
+                    </Pressable>
+                    <Pressable
+                      onPress={openCustomGymMenu}
+                      disabled={remainingGymSlots <= 0}
+                      style={({ pressed }) => [
+                        styles.gymActionButton,
+                        remainingGymSlots <= 0 && styles.disabledButton,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <ThemedText type="smallBold">Add Custom Gyms</ThemedText>
+                    </Pressable>
+                  </View>
+                  <ScrollView
+                    style={styles.contentRouteList}
+                    contentContainerStyle={styles.contentRouteContent}
+                    showsVerticalScrollIndicator
+                  >
+                    {activeGymNames.map((gymName, gymIndex) => (
+                      <Animated.View
+                        key={`${gymName}-${gymIndex}`}
+                        style={getWaterfallStyle(
+                          gymIndex + 1,
+                          activeGymNames.length + 2,
+                        )}
+                      >
+                        <View style={styles.routeActionRow}>
+                          <Pressable
+                            accessibilityLabel={`Edit ${gymName}`}
+                            accessibilityRole="button"
+                            onPress={() => openGymMenu(gymIndex)}
+                            style={({ pressed }) => [
+                              styles.routeOptionButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="small">{gymName}</ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Pokemon for ${gymName}`}
+                            accessibilityRole="button"
+                            onPress={() => openTeamMenu("gym", gymIndex)}
+                            style={({ pressed }) => [
+                              styles.teamButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">
+                              {activeGymPokemon[gymIndex]?.length
+                                ? `Pokemon (${activeGymPokemon[gymIndex].length})`
+                                : "Pokemon"}
+                            </ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Remove ${gymName}`}
+                            accessibilityRole="button"
+                            onPress={() => removeGym(gymIndex)}
+                            style={({ pressed }) => [
+                              styles.removeRouteButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">Remove</ThemedText>
+                          </Pressable>
+                        </View>
+                      </Animated.View>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => toggleContentSection("eliteFour")}
+                style={styles.contentDropdownHeader}
+              >
+                <ThemedText type="smallBold">Elite 4 / Champion</ThemedText>
+                <ThemedText type="smallBold">
+                  {eliteFourExpanded ? "−" : "+"}
+                </ThemedText>
+              </Pressable>
+              {eliteFourExpanded ? (
+                <Animated.View style={getWaterfallStyle(0, 1)}>
+                  <View style={styles.contentDropdownContent}>
+                    <View style={styles.gymActions}>
                       <Pressable
-                        accessibilityLabel={`Edit ${memberName}`}
-                        accessibilityRole="button"
-                        onPress={() =>
-                          openEliteMemberMenu("eliteFour", memberIndex)
-                        }
+                        onPress={addEliteFour}
+                        disabled={!canAddEliteFour}
                         style={({ pressed }) => [
-                          styles.routeOptionButton,
+                          styles.gymActionButton,
+                          !canAddEliteFour && styles.disabledButton,
                           pressed && styles.pressed,
                         ]}
                       >
-                        <ThemedText type="small">{memberName}</ThemedText>
+                        <ThemedText type="smallBold">
+                          {canAddEliteFour ? "Add Elite 4" : "Elite 4 Added"}
+                        </ThemedText>
                       </Pressable>
                       <Pressable
-                        accessibilityLabel={`Remove ${memberName}`}
-                        accessibilityRole="button"
-                        onPress={() => removeEliteFour(memberIndex)}
+                        onPress={addChampion}
+                        disabled={!canAddChampion}
                         style={({ pressed }) => [
-                          styles.removeRouteButton,
+                          styles.gymActionButton,
+                          !canAddChampion && styles.disabledButton,
                           pressed && styles.pressed,
                         ]}
                       >
-                        <ThemedText type="smallBold">Remove</ThemedText>
+                        <ThemedText type="smallBold">
+                          {canAddChampion ? "Add Champion" : "Champion Added"}
+                        </ThemedText>
                       </Pressable>
                     </View>
-                  ))}
-                  {activeChampionName ? (
-                    <View style={styles.routeActionRow}>
-                      <Pressable
-                        accessibilityLabel={`Edit ${activeChampionName}`}
-                        accessibilityRole="button"
-                        onPress={() => openEliteMemberMenu("champion")}
-                        style={({ pressed }) => [
-                          styles.routeOptionButton,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <ThemedText type="small">{activeChampionName}</ThemedText>
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel={`Remove ${activeChampionName}`}
-                        accessibilityRole="button"
-                        onPress={removeChampion}
-                        style={({ pressed }) => [
-                          styles.removeRouteButton,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <ThemedText type="smallBold">Remove</ThemedText>
-                      </Pressable>
-                    </View>
-                  ) : null}
-                </ScrollView>
-              </View>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setMapExpanded((expanded) => !expanded)}
-              style={styles.contentDropdownHeader}
-            >
-              <ThemedText type="smallBold">Map</ThemedText>
-              <ThemedText type="smallBold">
-                {mapExpanded ? "−" : "+"}
-              </ThemedText>
-            </Pressable>
-            {mapExpanded ? <View style={styles.emptyDropdownContent} /> : null}
-            <Pressable
-              onPress={() => setContentMenuVisible(false)}
-              style={({ pressed }) => [
-                styles.closeButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold">Close</ThemedText>
-            </Pressable>
+                    <ScrollView
+                      style={styles.contentRouteList}
+                      contentContainerStyle={styles.contentRouteContent}
+                      showsVerticalScrollIndicator
+                    >
+                      {activeEliteFourNames.map((memberName, memberIndex) => (
+                        <View
+                          key={`${memberName}-${memberIndex}`}
+                          style={styles.routeActionRow}
+                        >
+                          <Pressable
+                            accessibilityLabel={`Edit ${memberName}`}
+                            accessibilityRole="button"
+                            onPress={() =>
+                              openEliteMemberMenu("eliteFour", memberIndex)
+                            }
+                            style={({ pressed }) => [
+                              styles.routeOptionButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="small">{memberName}</ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Pokemon for ${memberName}`}
+                            accessibilityRole="button"
+                            onPress={() =>
+                              openTeamMenu("eliteFour", memberIndex)
+                            }
+                            style={({ pressed }) => [
+                              styles.teamButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">
+                              {activeEliteFourPokemon[memberIndex]?.length
+                                ? `Pokemon (${activeEliteFourPokemon[memberIndex].length})`
+                                : "Pokemon"}
+                            </ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Remove ${memberName}`}
+                            accessibilityRole="button"
+                            onPress={() => removeEliteFour(memberIndex)}
+                            style={({ pressed }) => [
+                              styles.removeRouteButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">Remove</ThemedText>
+                          </Pressable>
+                        </View>
+                      ))}
+                      {activeChampionName ? (
+                        <View style={styles.routeActionRow}>
+                          <Pressable
+                            accessibilityLabel={`Edit ${activeChampionName}`}
+                            accessibilityRole="button"
+                            onPress={() => openEliteMemberMenu("champion")}
+                            style={({ pressed }) => [
+                              styles.routeOptionButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="small">
+                              {activeChampionName}
+                            </ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Pokemon for ${activeChampionName}`}
+                            accessibilityRole="button"
+                            onPress={() => openTeamMenu("champion")}
+                            style={({ pressed }) => [
+                              styles.teamButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">
+                              {activeContentRegion?.championPokemon.length
+                                ? `Pokemon (${activeContentRegion.championPokemon.length})`
+                                : "Pokemon"}
+                            </ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Remove ${activeChampionName}`}
+                            accessibilityRole="button"
+                            onPress={removeChampion}
+                            style={({ pressed }) => [
+                              styles.removeRouteButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">Remove</ThemedText>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+                </Animated.View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => toggleContentSection("map")}
+                style={styles.contentDropdownHeader}
+              >
+                <ThemedText type="smallBold">Map</ThemedText>
+                <ThemedText type="smallBold">
+                  {mapExpanded ? "−" : "+"}
+                </ThemedText>
+              </Pressable>
+              {mapExpanded ? (
+                <Animated.View style={getWaterfallStyle(0, 1)}>
+                  <View
+                    style={[
+                      styles.mapCanvas,
+                      { backgroundColor: mapTheme.base },
+                    ]}
+                  >
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.mapWater,
+                        { backgroundColor: mapTheme.water },
+                      ]}
+                    />
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.mapForest,
+                        { backgroundColor: mapTheme.forest },
+                      ]}
+                    />
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.mapHighlands,
+                        { backgroundColor: mapTheme.highlands },
+                      ]}
+                    />
+                    {activeRouteNames.slice(1).map((_, routeIndex) => {
+                      const previousPosition = getMapPosition(
+                        `route-${routeIndex}`,
+                        routeIndex,
+                      );
+                      const currentPosition = getMapPosition(
+                        `route-${routeIndex + 1}`,
+                        routeIndex + 1,
+                      );
+                      return (
+                        <View
+                          key={`route-connector-${routeIndex + 1}`}
+                          pointerEvents="none"
+                          style={[
+                            styles.routeConnector,
+                            { backgroundColor: mapTheme.path },
+                            getRouteConnectorStyle(
+                              previousPosition,
+                              currentPosition,
+                            ),
+                          ]}
+                        />
+                      );
+                    })}
+                    {activeRouteNames.map((routeName, routeIndex) => {
+                      const id = `route-${routeIndex}`;
+                      const position = getMapPosition(id, routeIndex);
+                      return (
+                        <View
+                          key={id}
+                          onResponderGrant={(event) =>
+                            startMapDrag(id, position, event)
+                          }
+                          onResponderMove={moveMapDrag}
+                          onResponderRelease={finishMapDrag}
+                          onResponderTerminate={finishMapDrag}
+                          onStartShouldSetResponder={() => true}
+                          style={[
+                            styles.routeMapPiece,
+                            { left: position.x, top: position.y },
+                          ]}
+                        >
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.routePathSegmentA,
+                              { backgroundColor: mapTheme.pathLight },
+                            ]}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.routePathSegmentB,
+                              { backgroundColor: mapTheme.pathLight },
+                            ]}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.routePathSegmentC,
+                              { backgroundColor: mapTheme.pathDark },
+                            ]}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={styles.routePathLabel}
+                          >
+                            <ThemedText type="smallBold">
+                              {routeName}
+                            </ThemedText>
+                          </View>
+                        </View>
+                      );
+                    })}
+                    {activeGymNames.map((_, gymIndex) => {
+                      const id = `gym-${gymIndex}`;
+                      const position = getMapPosition(id, gymIndex);
+                      return (
+                        <View
+                          key={id}
+                          onResponderGrant={(event) =>
+                            startMapDrag(id, position, event)
+                          }
+                          onResponderMove={moveMapDrag}
+                          onResponderRelease={finishMapDrag}
+                          onResponderTerminate={finishMapDrag}
+                          onStartShouldSetResponder={() => true}
+                          style={[
+                            styles.gymMapPiece,
+                            { left: position.x, top: position.y },
+                          ]}
+                        >
+                          <ThemedText style={styles.gymEmoji}>🏫</ThemedText>
+                          <ThemedText type="smallBold" style={styles.gymIndex}>
+                            {gymIndex + 1}
+                          </ThemedText>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </Animated.View>
+              ) : null}
+              <Pressable
+                onPress={() => setContentMenuVisible(false)}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Close</ThemedText>
+              </Pressable>
+            </ScrollView>
           </ThemedView>
         </View>
       </Modal>
@@ -1153,6 +1730,153 @@ export default function MyRegionsScreen() {
 
       <Modal
         animationType="fade"
+        onRequestClose={() => setTeamMenuVisible(false)}
+        transparent
+        visible={teamMenuVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.teamMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              {teamKind === "gym"
+                ? "Gym Pokemon"
+                : teamKind === "champion"
+                  ? "Champion Pokemon"
+                  : "Elite 4 Pokemon"}
+            </ThemedText>
+            <ScrollView
+              style={styles.teamPokemonList}
+              contentContainerStyle={styles.contentRouteContent}
+              showsVerticalScrollIndicator
+            >
+              {teamPokemon.map((pokemon, pokemonIndex) => (
+                <View key={pokemonIndex} style={styles.teamPokemonRow}>
+                  <Pressable
+                    onPress={() => {
+                      setTeamPokemonMenuIndex(
+                        teamPokemonMenuIndex === pokemonIndex
+                          ? null
+                          : pokemonIndex,
+                      );
+                      setTeamPokemonSearch("");
+                    }}
+                    style={styles.pokemonDropdown}
+                  >
+                    <ThemedText type="small">
+                      {pokemon.name
+                        ? formatPokemonName(pokemon.name)
+                        : pokemonLoading
+                          ? "Loading..."
+                          : "Select Pokemon"}
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={() =>
+                      setTeamPokemon((currentPokemon) =>
+                        currentPokemon.filter(
+                          (_, index) => index !== pokemonIndex,
+                        ),
+                      )
+                    }
+                    style={styles.removeRouteButton}
+                  >
+                    <ThemedText type="smallBold">Remove</ThemedText>
+                  </Pressable>
+                  {teamPokemonMenuIndex === pokemonIndex ? (
+                    <ScrollView style={styles.teamPokemonOptions}>
+                      <TextInput
+                        autoCapitalize="none"
+                        onChangeText={setTeamPokemonSearch}
+                        placeholder="Search Pokemon"
+                        placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                        style={styles.pokemonSearch}
+                        value={teamPokemonSearch}
+                      />
+                      {pokemonOptions
+                        .filter((option) =>
+                          option.name.includes(teamPokemonSearch.toLowerCase()),
+                        )
+                        .map((option) => (
+                          <Pressable
+                            key={option.name}
+                            onPress={() => {
+                              updateTeamPokemon(pokemonIndex, {
+                                name: option.name,
+                              });
+                              setTeamPokemonMenuIndex(null);
+                              setTeamPokemonSearch("");
+                            }}
+                            style={styles.pokemonOption}
+                          >
+                            <ThemedText type="small">
+                              {formatPokemonName(option.name)}
+                            </ThemedText>
+                          </Pressable>
+                        ))}
+                    </ScrollView>
+                  ) : null}
+                  {pokemon.name ? (
+                    <View style={styles.movesList}>
+                      <ThemedText type="smallBold">Moves</ThemedText>
+                      {pokemon.moves.map((move, moveIndex) => (
+                        <TextInput
+                          key={moveIndex}
+                          onChangeText={(value) =>
+                            updateTeamMove(pokemonIndex, moveIndex, value)
+                          }
+                          placeholder={`Move ${moveIndex + 1}`}
+                          placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                          style={styles.input}
+                          value={move}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable
+              onPress={addTeamPokemon}
+              disabled={teamPokemon.length >= MAX_TEAM_POKEMON}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                teamPokemon.length >= MAX_TEAM_POKEMON && styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">
+                {teamPokemon.length >= MAX_TEAM_POKEMON
+                  ? "Pokemon Limit Reached"
+                  : "Add Pokemon"}
+              </ThemedText>
+            </Pressable>
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={saveTeam}
+                style={({ pressed }) => [
+                  styles.createMenuButton,
+                  styles.actionButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Save</ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={() => setTeamMenuVisible(false)}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  styles.actionButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Close</ThemedText>
+              </Pressable>
+            </View>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
         onRequestClose={() => setEliteMemberMenuVisible(false)}
         transparent
         visible={eliteMemberMenuVisible}
@@ -1160,28 +1884,61 @@ export default function MyRegionsScreen() {
         <View style={styles.modalOverlay}>
           <ThemedView type="backgroundElement" style={styles.gymEditMenu}>
             <ThemedText type="subtitle" style={styles.menuTitle}>
-              {editingEliteKind === "champion"
-                ? "Edit Champion"
-                : "Edit Elite 4"}
+              {eliteCreationKind === "champion"
+                ? "Add Champion"
+                : eliteCreationKind === "eliteFour"
+                  ? "Add Elite 4"
+                  : editingEliteKind === "champion"
+                    ? "Edit Champion"
+                    : "Edit Elite 4"}
             </ThemedText>
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">
-                {editingEliteKind === "champion"
-                  ? "Champion Name"
-                  : "Elite 4 Name"}
-              </ThemedText>
-              <TextInput
-                placeholder={
-                  editingEliteKind === "champion"
-                    ? "e.x. Champion Blue"
-                    : "e.x. Lorelei"
-                }
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                onChangeText={setEliteMemberName}
-                style={styles.input}
-                value={eliteMemberName}
-              />
-            </View>
+            {eliteCreationKind !== null ? (
+              eliteCreationNames.map((name, index) => (
+                <View key={index} style={styles.fieldGroup}>
+                  <ThemedText type="smallBold">
+                    {eliteCreationKind === "champion"
+                      ? "Champion Name"
+                      : `Elite Member ${index + 1}`}
+                  </ThemedText>
+                  <TextInput
+                    placeholder={
+                      eliteCreationKind === "champion"
+                        ? "e.g. Blue"
+                        : "e.g. Lorelei"
+                    }
+                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                    onChangeText={(value) =>
+                      setEliteCreationNames((currentNames) =>
+                        currentNames.map((currentName, currentIndex) =>
+                          currentIndex === index ? value : currentName,
+                        ),
+                      )
+                    }
+                    style={styles.input}
+                    value={name}
+                  />
+                </View>
+              ))
+            ) : (
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">
+                  {editingEliteKind === "champion"
+                    ? "Champion Name"
+                    : "Elite 4 Name"}
+                </ThemedText>
+                <TextInput
+                  placeholder={
+                    editingEliteKind === "champion"
+                      ? "e.g. Champion Blue"
+                      : "e.g. Lorelei"
+                  }
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  onChangeText={setEliteMemberName}
+                  style={styles.input}
+                  value={eliteMemberName}
+                />
+              </View>
+            )}
             <Pressable
               onPress={saveEliteMember}
               style={({ pressed }) => [
@@ -1189,7 +1946,9 @@ export default function MyRegionsScreen() {
                 pressed && styles.pressed,
               ]}
             >
-              <ThemedText type="smallBold">Save Changes</ThemedText>
+              <ThemedText type="smallBold">
+                {eliteCreationKind !== null ? "Add" : "Save Changes"}
+              </ThemedText>
             </Pressable>
             <Pressable
               onPress={() => setEliteMemberMenuVisible(false)}
@@ -1532,10 +2291,18 @@ const styles = StyleSheet.create({
   },
   contentMenu: {
     width: "100%",
-    maxWidth: 520,
+    maxWidth: 720,
+    maxHeight: "92%",
     gap: 16,
     padding: 24,
     borderRadius: 16,
+  },
+  contentMenuScroll: {
+    flexShrink: 1,
+  },
+  contentMenuScrollContent: {
+    gap: 16,
+    paddingBottom: 4,
   },
   contentMenuTitle: {
     fontSize: 48,
@@ -1574,8 +2341,116 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: "rgba(60, 135, 247, 0.8)",
   },
-  emptyDropdownContent: {
-    minHeight: 8,
+  mapCanvas: {
+    height: 540,
+    overflow: "hidden",
+    position: "relative",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    backgroundColor: "#6b9f67",
+  },
+  mapWater: {
+    position: "absolute",
+    top: -24,
+    right: -22,
+    width: 188,
+    height: 168,
+    borderBottomLeftRadius: 100,
+    borderBottomRightRadius: 44,
+    backgroundColor: "rgba(77, 157, 190, 0.72)",
+  },
+  mapForest: {
+    position: "absolute",
+    bottom: -34,
+    left: -18,
+    width: 188,
+    height: 130,
+    borderTopRightRadius: 110,
+    backgroundColor: "rgba(38, 104, 62, 0.72)",
+  },
+  mapHighlands: {
+    position: "absolute",
+    top: 136,
+    left: 190,
+    width: 170,
+    height: 88,
+    borderRadius: 60,
+    backgroundColor: "rgba(168, 145, 88, 0.26)",
+    transform: [{ rotate: "-10deg" }],
+  },
+  routeMapPiece: {
+    position: "absolute",
+    width: 92,
+    height: 62,
+  },
+  routeConnector: {
+    position: "absolute",
+    height: 14,
+    borderRadius: 8,
+    backgroundColor: "#b88b52",
+    borderWidth: 2,
+    borderColor: "rgba(91, 61, 31, 0.28)",
+  },
+  routePathSegmentA: {
+    position: "absolute",
+    top: 28,
+    left: -12,
+    width: 54,
+    height: 12,
+    borderRadius: 12,
+    backgroundColor: "#c49b62",
+    transform: [{ rotate: "22deg" }],
+  },
+  routePathSegmentB: {
+    position: "absolute",
+    top: 16,
+    left: 22,
+    width: 52,
+    height: 12,
+    borderRadius: 12,
+    backgroundColor: "#d2ad72",
+    transform: [{ rotate: "-18deg" }],
+  },
+  routePathSegmentC: {
+    position: "absolute",
+    top: 30,
+    left: 54,
+    width: 52,
+    height: 12,
+    borderRadius: 12,
+    backgroundColor: "#b88b52",
+    transform: [{ rotate: "28deg" }],
+  },
+  routePathLabel: {
+    position: "absolute",
+    top: 0,
+    left: 12,
+    maxWidth: 72,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 5,
+    backgroundColor: "rgba(73, 52, 30, 0.78)",
+  },
+  gymMapPiece: {
+    position: "absolute",
+    width: 58,
+    minHeight: 58,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 0,
+  },
+  gymEmoji: {
+    fontSize: 34,
+    lineHeight: 38,
+  },
+  gymIndex: {
+    minWidth: 22,
+    textAlign: "center",
+    color: "#fff5ca",
+    textShadowColor: "rgba(64, 39, 18, 0.8)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   gymCountMenu: {
     width: "100%",
@@ -1624,6 +2499,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 8,
     backgroundColor: "rgba(180, 50, 50, 0.8)",
+  },
+  teamButton: {
+    minHeight: 44,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: "rgba(60, 135, 247, 0.8)",
+  },
+  teamMenu: {
+    width: "100%",
+    maxWidth: 640,
+    maxHeight: "92%",
+    gap: 16,
+    padding: 24,
+    borderRadius: 16,
+  },
+  teamPokemonList: {
+    maxHeight: 560,
+  },
+  teamPokemonRow: {
+    gap: 8,
+    paddingBottom: 12,
+  },
+  teamPokemonOptions: {
+    maxHeight: 220,
+    borderRadius: 8,
+    backgroundColor: "#212225",
+  },
+  movesList: {
+    gap: 8,
+    paddingLeft: 12,
   },
   routeContentMenu: {
     width: "100%",
