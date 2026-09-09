@@ -1,10 +1,12 @@
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 import {
     Animated,
+    Linking,
     Modal,
     Pressable,
+    Platform,
     ScrollView,
     StyleSheet,
     TextInput,
@@ -12,11 +14,23 @@ import {
 } from "react-native";
 
 import { getPokemon, type Pokemon } from "@/api/pokemon";
+import {
+  confirmDeleteAction as confirmDeletePrompt,
+} from "@/utils/delete-confirmation";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  getMusicEmbedUri,
+  getMusicProvider,
+  normalizeMusicUri,
+} from "@/utils/music";
 
-const REGIONS_STORAGE_KEY = "pokemon-regions";
+const APP_STORAGE_VERSION = "v2";
+const REGIONS_STORAGE_KEY = `pokemon-regions-${APP_STORAGE_VERSION}`;
+const CUSTOM_POKEMON_STORAGE_KEY = `custom-pokemon-options-${APP_STORAGE_VERSION}`;
+const GIMMICKS_STORAGE_KEY = "pokemon-gimmicks";
+const LEGACY_STORAGE_KEYS = ["pokemon-regions", "custom-pokemon-options"];
 const MAX_TEAM_POKEMON = 6;
 
 type Region = {
@@ -33,6 +47,18 @@ type Region = {
   champion: string | null;
   championPokemon: TeamPokemon[];
   mapPositions: Record<string, MapPosition>;
+  gimmicks: string[];
+  music: MusicEntry[];
+};
+type MusicEntry = {
+  name: string;
+  uri: string;
+  kind: "audio" | "sheet" | "file";
+};
+type Gimmick = {
+  name: string;
+  category: string;
+  description: string;
 };
 type RoutePokemon = {
   name: string;
@@ -57,6 +83,7 @@ const biomeMapThemes: Record<
     pathLight: string;
     pathDark: string;
   }
+
 > = {
   Grassland: {
     base: "#6b9f67",
@@ -138,6 +165,21 @@ const pokemonTypes = [
 ];
 const pokemonGenerations = Array.from({ length: 9 }, (_, index) => index + 1);
 
+function countAssignedPokemon(
+  teams: TeamPokemon[][],
+  routePokemon: Record<string, RoutePokemon[]>,
+) {
+  const routeCount = Object.values(routePokemon).reduce(
+    (total, entries) => total + entries.filter((entry) => entry.name).length,
+    0,
+  );
+  const teamCount = teams.reduce(
+    (total, team) => total + team.filter((entry) => entry.name).length,
+    0,
+  );
+  return routeCount + teamCount;
+}
+
 function formatPokemonName(name: string) {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
@@ -175,6 +217,19 @@ export default function MyRegionsScreen() {
   const [gymsExpanded, setGymsExpanded] = useState(false);
   const [eliteFourExpanded, setEliteFourExpanded] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [gimmicksExpanded, setGimmicksExpanded] = useState(false);
+  const [musicExpanded, setMusicExpanded] = useState(false);
+  const [musicEntries, setMusicEntries] = useState<MusicEntry[]>([]);
+  const [musicEditorVisible, setMusicEditorVisible] = useState(false);
+  const [musicName, setMusicName] = useState("");
+  const [musicUri, setMusicUri] = useState("");
+  const [musicKind, setMusicKind] = useState<MusicEntry["kind"]>("sheet");
+  const [availableGimmicks, setAvailableGimmicks] = useState<Gimmick[]>([]);
+  const [selectedGimmicks, setSelectedGimmicks] = useState<string[]>([]);
+  const [gimmickCreateVisible, setGimmickCreateVisible] = useState(false);
+  const [newGimmickName, setNewGimmickName] = useState("");
+  const [newGimmickCategory, setNewGimmickCategory] = useState("");
+  const [newGimmickDescription, setNewGimmickDescription] = useState("");
   const contentReveal = useRef(new Animated.Value(1)).current;
   const [mapPositions, setMapPositions] = useState<Record<string, MapPosition>>(
     {},
@@ -225,10 +280,23 @@ export default function MyRegionsScreen() {
   const [pokemonGenerationFilter, setPokemonGenerationFilter] = useState("");
   const [pokemonLoading, setPokemonLoading] = useState(false);
   const [percentageError, setPercentageError] = useState(false);
+  const [importExportVisible, setImportExportVisible] = useState(false);
+  const [importExportMode, setImportExportMode] = useState<
+    "import" | "export" | null
+  >(null);
+  const [importText, setImportText] = useState("");
+  const [exportText, setExportText] = useState("");
+  const [importError, setImportError] = useState("");
   const theme = useTheme();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    LEGACY_STORAGE_KEYS.forEach((key) => {
+      if (window.localStorage.getItem(key)) {
+        window.localStorage.removeItem(key);
+      }
+    });
 
     const storedRegions = window.localStorage.getItem(REGIONS_STORAGE_KEY);
     if (storedRegions) {
@@ -249,6 +317,8 @@ export default function MyRegionsScreen() {
             champion: region.champion ?? null,
             championPokemon: region.championPokemon ?? [],
             mapPositions: region.mapPositions ?? {},
+            gimmicks: Array.isArray(region.gimmicks) ? region.gimmicks : [],
+            music: Array.isArray(region.music) ? region.music : [],
           })),
         );
       } catch {
@@ -258,26 +328,203 @@ export default function MyRegionsScreen() {
     setHasLoadedRegions(true);
   }, []);
 
+  function loadGimmicks() {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
+    if (!stored) {
+      setAvailableGimmicks([]);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as Partial<Gimmick>[];
+      setAvailableGimmicks(
+        parsed
+          .filter((gimmick) => typeof gimmick?.name === "string")
+          .map((gimmick) => ({
+            name: gimmick.name?.trim() ?? "",
+            category: gimmick.category ?? "",
+            description: gimmick.description ?? "",
+          })),
+      );
+    } catch {
+      setAvailableGimmicks([]);
+    }
+  }
+
+  function openGimmickSection() {
+    loadGimmicks();
+    setGimmicksExpanded((expanded) => !expanded);
+  }
+
+  function toggleGimmick(name: string) {
+    const nextSelection = selectedGimmicks.includes(name)
+      ? selectedGimmicks.filter((gimmickName) => gimmickName !== name)
+      : [...selectedGimmicks, name];
+    setSelectedGimmicks(nextSelection);
+    saveRegionGimmicks(nextSelection);
+  }
+
+  function openGimmickCreate() {
+    setNewGimmickName("");
+    setNewGimmickCategory("");
+    setNewGimmickDescription("");
+    setContentMenuVisible(false);
+    setGimmickCreateVisible(true);
+  }
+
+  function saveNewGimmick() {
+    const name = newGimmickName.trim();
+    if (!name || typeof window === "undefined") return;
+    const gimmick = {
+      name,
+      category: newGimmickCategory.trim(),
+      description: newGimmickDescription.trim(),
+    };
+    const next = [...availableGimmicks.filter((item) => item.name !== name), gimmick];
+    window.localStorage.setItem(GIMMICKS_STORAGE_KEY, JSON.stringify(next));
+    setAvailableGimmicks(next);
+    const nextSelection = selectedGimmicks.includes(name)
+      ? selectedGimmicks
+      : [...selectedGimmicks, name];
+    setSelectedGimmicks(nextSelection);
+    saveRegionGimmicks(nextSelection);
+    setGimmickCreateVisible(false);
+    setGimmicksExpanded(true);
+    setContentMenuVisible(true);
+  }
+
+  function saveRegionGimmicks(nextGimmicks = selectedGimmicks) {
+    if (contentRegionIndex === null) return;
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) =>
+        index === contentRegionIndex
+          ? { ...region, gimmicks: nextGimmicks }
+          : region,
+      ),
+    );
+  }
+
+  function saveMusic(nextMusic: MusicEntry[]) {
+    if (contentRegionIndex === null) return;
+    setMusicEntries(nextMusic);
+    setRegions((currentRegions) =>
+      currentRegions.map((region, index) =>
+        index === contentRegionIndex ? { ...region, music: nextMusic } : region,
+      ),
+    );
+  }
+
+  function openMusicEditor() {
+    setMusicName("");
+    setMusicUri("");
+    setMusicKind("sheet");
+    setContentMenuVisible(false);
+    setMusicEditorVisible(true);
+  }
+
+  function chooseMusicFile() {
+    if (typeof document === "undefined") return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "audio/*,.pdf,image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 25 * 1024 * 1024) {
+        window.alert("Please choose a music file smaller than 25 MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setMusicUri(String(reader.result ?? ""));
+        setMusicKind(file.type.startsWith("audio/") ? "audio" : "sheet");
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }
+
+  function saveMusicEntry() {
+    const name = musicName.trim();
+    const uri = normalizeMusicUri(musicUri);
+    if (!name || !uri) return;
+    saveMusic([
+      ...musicEntries,
+      { name, uri, kind: getMusicProvider(uri) ? "sheet" : musicKind },
+    ]);
+    setMusicEditorVisible(false);
+    setMusicExpanded(true);
+    setContentMenuVisible(true);
+  }
+
+  function removeMusicEntry(index: number) {
+    saveMusic(musicEntries.filter((_, entryIndex) => entryIndex !== index));
+  }
+
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoadedRegions) {
       window.localStorage.setItem(REGIONS_STORAGE_KEY, JSON.stringify(regions));
     }
   }, [hasLoadedRegions, regions]);
 
-  useEffect(() => {
-    let active = true;
+  const loadPokemonOptions = async () => {
     setPokemonLoading(true);
-    getPokemon(1025)
-      .then((pokemon) => {
-        if (active) setPokemonOptions(pokemon);
-      })
-      .finally(() => {
-        if (active) setPokemonLoading(false);
-      });
 
-    return () => {
-      active = false;
-    };
+    try {
+      const basePokemon = await getPokemon(1025);
+      let customPokemon: Pokemon[] = [];
+
+      if (typeof window !== "undefined") {
+        const storedCustom =
+          window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY) ??
+          window.localStorage.getItem("custom-pokemon-options");
+
+        if (storedCustom) {
+          try {
+            const parsed = JSON.parse(storedCustom) as Partial<Pokemon & {
+              imageUrl?: string;
+              isCustom?: boolean;
+            }>[];
+            customPokemon = parsed
+              .filter(
+                (entry): entry is Partial<Pokemon> & { name: string } =>
+                  !!entry && typeof entry.name === "string",
+              )
+              .map((entry) => ({
+                name: entry.name,
+                url: entry.imageUrl ?? entry.url ?? "",
+                types: Array.isArray(entry.types) ? entry.types : [],
+                generation: typeof entry.generation === "number" ? entry.generation : 9,
+                imageUrl: entry.imageUrl ?? entry.url ?? "",
+                isCustom: true,
+              }));
+
+            if (
+              !window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY) &&
+              window.localStorage.getItem("custom-pokemon-options")
+            ) {
+              window.localStorage.setItem(
+                CUSTOM_POKEMON_STORAGE_KEY,
+                storedCustom,
+              );
+            }
+          } catch {
+            window.localStorage.removeItem(CUSTOM_POKEMON_STORAGE_KEY);
+            window.localStorage.removeItem("custom-pokemon-options");
+          }
+        }
+      }
+
+      setPokemonOptions([...basePokemon, ...customPokemon]);
+    } catch {
+      setPokemonOptions([]);
+    } finally {
+      setPokemonLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadPokemonOptions();
   }, []);
 
   function openCreateMenu() {
@@ -309,13 +556,17 @@ export default function MyRegionsScreen() {
     setRoutesExpanded(false);
     setGymsExpanded(false);
     setEliteFourExpanded(false);
+    setGimmicksExpanded(false);
+    setMusicExpanded(false);
     setMapExpanded(false);
+    setSelectedGimmicks(regions[index]?.gimmicks ?? []);
+    setMusicEntries(regions[index]?.music ?? []);
     setGymCountMenuVisible(false);
     setContentMenuVisible(true);
   }
 
   function toggleContentSection(
-    section: "routes" | "gyms" | "eliteFour" | "map",
+    section: "routes" | "gyms" | "eliteFour" | "gimmicks" | "music" | "map",
   ) {
     const isOpen =
       section === "routes"
@@ -324,7 +575,11 @@ export default function MyRegionsScreen() {
           ? gymsExpanded
           : section === "eliteFour"
             ? eliteFourExpanded
-            : mapExpanded;
+              : section === "gimmicks"
+                ? gimmicksExpanded
+                : section === "music"
+                  ? musicExpanded
+                : mapExpanded;
 
     if (!isOpen) {
       contentReveal.stopAnimation();
@@ -333,7 +588,7 @@ export default function MyRegionsScreen() {
         toValue: 1,
         duration: 680,
         easing: undefined,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web",
       }).start();
     }
 
@@ -342,6 +597,10 @@ export default function MyRegionsScreen() {
     setEliteFourExpanded(
       section === "eliteFour" ? (expanded) => !expanded : false,
     );
+    setGimmicksExpanded(
+      section === "gimmicks" ? (expanded) => !expanded : false,
+    );
+    setMusicExpanded(section === "music" ? (expanded) => !expanded : false);
     setMapExpanded(section === "map" ? (expanded) => !expanded : false);
   }
 
@@ -812,12 +1071,19 @@ export default function MyRegionsScreen() {
   }
 
   function openRouteMenu(routeName: string) {
+    void loadPokemonOptions();
     setSelectedRouteName(routeName);
     setRouteContentMenuVisible(true);
     setSelectedRoutePokemon(
       activeContentRegion?.routePokemon?.[routeName] ?? [],
     );
     setPercentageError(false);
+    setPokemonSearch("");
+    setPokemonTypeFilter([]);
+    setPokemonGenerationFilter("");
+  }
+
+  function resetPokemonFilters() {
     setPokemonSearch("");
     setPokemonTypeFilter([]);
     setPokemonGenerationFilter("");
@@ -843,6 +1109,8 @@ export default function MyRegionsScreen() {
         champion: null,
         championPokemon: [],
         mapPositions: {},
+        gimmicks: [],
+        music: [],
       },
     ]);
     setMenuVisible(false);
@@ -869,6 +1137,8 @@ export default function MyRegionsScreen() {
               champion: region.champion ?? null,
               championPokemon: region.championPokemon ?? [],
               mapPositions: region.mapPositions ?? {},
+              gimmicks: region.gimmicks ?? [],
+              music: region.music ?? [],
             }
           : region,
       ),
@@ -930,6 +1200,164 @@ export default function MyRegionsScreen() {
     setMenuVisible(false);
   }
 
+  function confirmRegionDelete() {
+    if (editingRegionIndex === null) return;
+    confirmDeletePrompt(
+      {
+        title: "Delete region?",
+        message:
+          "This will remove the region and all of its saved route, gym, and leader data.",
+        onConfirm: deleteRegion,
+      },
+    );
+  }
+
+  function openExportModal() {
+    setImportText("");
+    setImportError("");
+    setExportText(
+      JSON.stringify(
+        { version: 2, exportedAt: new Date().toISOString(), regions },
+        null,
+        2,
+      ),
+    );
+    setImportExportMode("export");
+    setImportExportVisible(true);
+  }
+
+  function openImportModal() {
+    setExportText("");
+    setImportError("");
+    setImportText("");
+    setImportExportMode("import");
+    setImportExportVisible(true);
+  }
+
+  function normalizeImportedRegions(rawInput: unknown): Region[] {
+    const payload =
+      Array.isArray(rawInput) ? rawInput :
+      rawInput && typeof rawInput === "object" && Array.isArray((rawInput as { regions?: unknown }).regions)
+        ? (rawInput as { regions: unknown[] }).regions
+        : [];
+
+    if (payload.length === 0) {
+      throw new Error("Paste a valid region export or array of regions.");
+    }
+
+    return payload.map((entry, index) => {
+      const region = (entry ?? {}) as Partial<Region>;
+      if (!region || typeof region !== "object") {
+        throw new Error(`Region ${index + 1} is not valid.`);
+      }
+
+      return {
+        name: typeof region.name === "string" ? region.name : "",
+        rivalName: typeof region.rivalName === "string" ? region.rivalName : "",
+        type: typeof region.type === "string" ? region.type : "",
+        routes: typeof region.routes === "string" ? region.routes : String(region.routes ?? ""),
+        routeNames: Array.isArray(region.routeNames) ? region.routeNames : [],
+        routePokemon:
+          region.routePokemon && typeof region.routePokemon === "object"
+            ? (region.routePokemon as Record<string, RoutePokemon[]>)
+            : {},
+        gyms: Array.isArray(region.gyms) ? region.gyms : [],
+        gymPokemon: Array.isArray(region.gymPokemon) ? region.gymPokemon : [],
+        eliteFour: Array.isArray(region.eliteFour) ? region.eliteFour : [],
+        eliteFourPokemon: Array.isArray(region.eliteFourPokemon)
+          ? region.eliteFourPokemon
+          : [],
+        champion:
+          typeof region.champion === "string" || region.champion === null
+            ? region.champion
+            : null,
+        championPokemon: Array.isArray(region.championPokemon)
+          ? region.championPokemon
+          : [],
+        mapPositions:
+          region.mapPositions && typeof region.mapPositions === "object"
+            ? (region.mapPositions as Record<string, MapPosition>)
+            : {},
+        gimmicks: Array.isArray(region.gimmicks) ? region.gimmicks : [],
+        music: Array.isArray(region.music) ? region.music : [],
+      };
+    });
+  }
+
+  function importRegions() {
+    if (!importText.trim()) {
+      setImportError("Paste a region export before importing.");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(importText) as unknown;
+      const nextRegions = normalizeImportedRegions(parsed);
+      setRegions(nextRegions);
+      setImportExportVisible(false);
+      setImportText("");
+      setImportError("");
+    } catch (error) {
+      setImportError(
+        error instanceof Error
+          ? `Import failed: ${error.message}`
+          : "Import failed. Check that the file is a Pokemon Regions JSON export.",
+      );
+    }
+  }
+
+  function uploadRegionsFromFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setImportText(result);
+      setImportError("");
+      setImportExportMode("import");
+      setImportExportVisible(true);
+    };
+    reader.onerror = () => {
+      setImportError("Could not read the selected file.");
+    };
+    reader.readAsText(file);
+  }
+
+  function chooseImportFile() {
+    if (typeof document === "undefined") return;
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      uploadRegionsFromFile(file);
+    };
+    input.click();
+  }
+
+  async function copyExportData() {
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      setImportError("Clipboard is unavailable on this device.");
+      return;
+    }
+
+    await navigator.clipboard.writeText(exportText);
+    setImportExportVisible(false);
+  }
+
+  function downloadExportData() {
+    if (typeof document === "undefined") return;
+
+    const content = new Blob([exportText], { type: "application/json" });
+    const url = URL.createObjectURL(content);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "pokemon-regions.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setImportExportVisible(false);
+  }
+
   const activeContentRegion =
     contentRegionIndex === null ? null : regions[contentRegionIndex];
   const activeRouteNames = activeContentRegion?.routeNames ?? [];
@@ -957,6 +1385,9 @@ export default function MyRegionsScreen() {
       {regions.length === 0 ? (
         <ThemedView style={styles.emptyState}>
           <ThemedText type="subtitle">Don&apos;t Have A Region?</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
+            Create a region to plan routes, gyms, teams, and your custom map.
+          </ThemedText>
           <Pressable
             onPress={openCreateMenu}
             style={({ pressed }) => pressed && styles.pressed}
@@ -965,13 +1396,35 @@ export default function MyRegionsScreen() {
               <ThemedText type="smallBold">Make One Now</ThemedText>
             </ThemedView>
           </Pressable>
+          <View style={styles.emptyImportExportActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={openImportModal}
+              style={({ pressed }) => [
+                styles.emptyImportExportButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Import Regions</ThemedText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={openExportModal}
+              style={({ pressed }) => [
+                styles.emptyImportExportButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Export Regions</ThemedText>
+            </Pressable>
+          </View>
         </ThemedView>
       ) : (
         <View style={styles.regionsSection}>
           <ThemedView type="backgroundElement" style={styles.regionsArea}>
             <View style={styles.regionList}>
               {regions.map((region, index) => (
-                <View key={`${region.name}-${region.rivalName}-${index}`}>
+                <View key={`${region.name}-${region.rivalName}-${index}`} style={styles.regionCard}>
                   <View style={styles.regionRow}>
                     <ThemedText
                       type="subtitle"
@@ -1008,6 +1461,37 @@ export default function MyRegionsScreen() {
                       </Pressable>
                     </View>
                   </View>
+                  <View style={styles.regionMetaRow}>
+                    <ThemedText type="small">
+                      {region.routeNames?.length ?? 0} routes
+                    </ThemedText>
+                    <ThemedText type="small">
+                      {region.gyms?.length ?? 0} gyms
+                    </ThemedText>
+                    <ThemedText type="small">
+                      {region.gimmicks?.length ?? 0} gimmicks
+                    </ThemedText>
+                    <ThemedText type="small">
+                      {countAssignedPokemon(
+                        [
+                          ...(region.gymPokemon ?? []),
+                          ...(region.eliteFourPokemon ?? []),
+                          region.championPokemon ?? [],
+                        ],
+                        region.routePokemon ?? {},
+                      )} Pokémon assigned
+                    </ThemedText>
+                    {region.eliteFour?.length ? (
+                      <ThemedText type="small">
+                        {region.eliteFour.length} elite members
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                  {region.gimmicks?.length ? (
+                    <ThemedText type="small" style={styles.regionGimmickSummary}>
+                      Gimmicks: {region.gimmicks.join(", ")}
+                    </ThemedText>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -1025,6 +1509,41 @@ export default function MyRegionsScreen() {
           </Pressable>
         </View>
       )}
+
+      {regions.length > 0 ? (
+        <View style={styles.footerActions}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={chooseImportFile}
+            style={({ pressed }) => [
+              styles.toolbarButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="smallBold">Upload</ThemedText>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={openImportModal}
+            style={({ pressed }) => [
+              styles.toolbarButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="smallBold">Import</ThemedText>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={openExportModal}
+            style={({ pressed }) => [
+              styles.toolbarButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="smallBold">Export</ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
 
       <Modal
         animationType="fade"
@@ -1126,7 +1645,7 @@ export default function MyRegionsScreen() {
 
             {editingRegionIndex !== null && (
               <Pressable
-                onPress={deleteRegion}
+                onPress={confirmRegionDelete}
                 style={({ pressed }) => [
                   styles.deleteButton,
                   pressed && styles.pressed,
@@ -1145,6 +1664,268 @@ export default function MyRegionsScreen() {
             >
               <ThemedText type="smallBold">Close</ThemedText>
             </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          setMusicEditorVisible(false);
+          setMusicExpanded(true);
+          setContentMenuVisible(true);
+        }}
+        transparent
+        visible={musicEditorVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.menu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              Add Music
+            </ThemedText>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Music Name</ThemedText>
+              <TextInput
+                onChangeText={setMusicName}
+                placeholder="e.g. Route Theme"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.input}
+                value={musicName}
+              />
+            </View>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Music Type</ThemedText>
+              <View style={styles.musicTypeOptions}>
+                {(["sheet", "file"] as MusicEntry["kind"][]).map(
+                  (kind) => (
+                    <Pressable
+                      key={kind}
+                      onPress={() => setMusicKind(kind)}
+                      style={[
+                        styles.typeChip,
+                        (musicKind === kind ||
+                          (kind === "sheet" && musicKind === "audio")) &&
+                          styles.selectedDropdown,
+                      ]}
+                    >
+                      <ThemedText type="small">
+                        {kind === "sheet" ? "Audio/Sheet Music" : "File"}
+                      </ThemedText>
+                    </Pressable>
+                  ),
+                )}
+              </View>
+            </View>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Website Link or File</ThemedText>
+              <TextInput
+                autoCapitalize="none"
+                onChangeText={setMusicUri}
+                placeholder="https://example.com/theme.mp3"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.input}
+                value={musicUri.startsWith("data:") ? "" : musicUri}
+              />
+              <Pressable
+                onPress={chooseMusicFile}
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Upload File</ThemedText>
+              </Pressable>
+              {musicUri.startsWith("data:") ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  File selected and ready to save.
+                </ThemedText>
+              ) : null}
+            </View>
+            <Pressable
+              onPress={saveMusicEntry}
+              disabled={!musicName.trim() || !musicUri.trim()}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                (!musicName.trim() || !musicUri.trim()) && styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Save Music</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setMusicEditorVisible(false);
+                setMusicExpanded(true);
+                setContentMenuVisible(true);
+              }}
+              style={styles.closeButton}
+            >
+              <ThemedText type="smallBold">Cancel</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          setGimmickCreateVisible(false);
+          setGimmicksExpanded(true);
+          setContentMenuVisible(true);
+        }}
+        transparent
+        visible={gimmickCreateVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.menu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              Create Gimmick
+            </ThemedText>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Gimmick Name</ThemedText>
+              <TextInput
+                onChangeText={setNewGimmickName}
+                placeholder="e.g. Terastallization"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.input}
+                value={newGimmickName}
+              />
+            </View>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Category</ThemedText>
+              <TextInput
+                onChangeText={setNewGimmickCategory}
+                placeholder="e.g. Transformation"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.input}
+                value={newGimmickCategory}
+              />
+            </View>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Description</ThemedText>
+              <TextInput
+                multiline
+                onChangeText={setNewGimmickDescription}
+                placeholder="How does it work?"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={[styles.input, styles.descriptionInput]}
+                value={newGimmickDescription}
+              />
+            </View>
+            <Pressable
+              onPress={saveNewGimmick}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Create and Add</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setGimmickCreateVisible(false);
+                setGimmicksExpanded(true);
+                setContentMenuVisible(true);
+              }}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Cancel</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setImportExportVisible(false)}
+        transparent
+        visible={importExportVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.importExportModal}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              {importExportMode === "import" ? "Import Regions" : "Export Regions"}
+            </ThemedText>
+
+            <TextInput
+              multiline
+              editable={importExportMode === "import"}
+              onChangeText={
+                importExportMode === "import" ? setImportText : undefined
+              }
+              placeholder={
+                importExportMode === "import"
+                  ? "Paste region JSON here"
+                  : "Exported region data"
+              }
+              placeholderTextColor="rgba(255, 255, 255, 0.6)"
+              style={styles.importExportTextArea}
+              value={importExportMode === "import" ? importText : exportText}
+            />
+
+            {importError ? (
+              <ThemedText type="small" style={styles.percentageError}>
+                {importError}
+              </ThemedText>
+            ) : null}
+
+            <View style={styles.importExportActions}>
+              {importExportMode === "import" ? (
+                <>
+                  <Pressable
+                    onPress={chooseImportFile}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Upload File</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={importRegions}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Import Data</ThemedText>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    onPress={() => void copyExportData()}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Copy JSON</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={downloadExportData}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Download File</ThemedText>
+                  </Pressable>
+                </>
+              )}
+              <Pressable
+                onPress={() => setImportExportVisible(false)}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Close</ThemedText>
+              </Pressable>
+            </View>
           </ThemedView>
         </View>
       </Modal>
@@ -1208,7 +1989,13 @@ export default function MyRegionsScreen() {
                           <Pressable
                             accessibilityLabel={`Remove ${routeName}`}
                             accessibilityRole="button"
-                            onPress={() => removeRoute(routeIndex)}
+                            onPress={() =>
+                              confirmDeletePrompt({
+                                title: "Remove route?",
+                                message: `This will delete ${routeName} from this region.`,
+                                onConfirm: () => removeRoute(routeIndex),
+                              })
+                            }
                             style={({ pressed }) => [
                               styles.removeRouteButton,
                               pressed && styles.pressed,
@@ -1232,6 +2019,93 @@ export default function MyRegionsScreen() {
                     <ThemedText type="smallBold">
                       {canAddRoute ? "Add All Routes" : "Route Limit Reached"}
                     </ThemedText>
+                  </Pressable>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => toggleContentSection("music")}
+                style={styles.contentDropdownHeader}
+              >
+                <ThemedText type="smallBold">Music</ThemedText>
+                <ThemedText type="smallBold">
+                  {musicExpanded ? "−" : "+"}
+                </ThemedText>
+              </Pressable>
+              {musicExpanded ? (
+                <View style={styles.contentDropdownContent}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Add audio links, sheet music, or uploaded music files for this region.
+                  </ThemedText>
+                  {musicEntries.length > 0 ? (
+                    <View style={styles.musicList}>
+                      {musicEntries.map((entry, index) => (
+                        <View key={`${entry.name}-${index}`} style={styles.musicCard}>
+                          <View style={styles.musicDetails}>
+                            <ThemedText type="smallBold">{entry.name}</ThemedText>
+                            {Platform.OS === "web" && entry.kind === "audio"
+                              ? createElement("audio", {
+                                  controls: true,
+                                  src: entry.uri,
+                                  style: { width: "100%" },
+                                })
+                              : null}
+                            {Platform.OS === "web" && getMusicProvider(entry.uri)
+                              ? createElement("iframe", {
+                                  allow: "autoplay; fullscreen",
+                                  allowFullScreen: true,
+                                  frameBorder: "0",
+                                  loading: "lazy",
+                                  title: entry.name,
+                                  src: getMusicEmbedUri(entry.uri),
+                                  style: { width: "100%", height: 300, border: 0 },
+                                })
+                              : null}
+                            {Platform.OS === "web" && entry.kind === "sheet"
+                              && !getMusicProvider(entry.uri)
+                              ? entry.uri.toLowerCase().startsWith("data:image/")
+                                ? createElement("img", {
+                                    alt: entry.name,
+                                    src: entry.uri,
+                                    style: { maxWidth: "100%", maxHeight: 300, objectFit: "contain" },
+                                  })
+                                : createElement("iframe", {
+                                    title: entry.name,
+                                    src: entry.uri,
+                                    style: { width: "100%", height: 260, border: 0 },
+                                  })
+                              : null}
+                            <Pressable
+                              onPress={() => void Linking.openURL(entry.uri)}
+                              style={styles.musicOpenButton}
+                            >
+                              <ThemedText type="smallBold">
+                                {entry.kind === "audio" ? "Open Audio" : "Open File"}
+                              </ThemedText>
+                            </Pressable>
+                          </View>
+                          <Pressable
+                            onPress={() => removeMusicEntry(index)}
+                            style={styles.smallDeleteAction}
+                          >
+                            <ThemedText type="smallBold">Remove</ThemedText>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <ThemedText type="small" style={styles.noGimmicksText}>
+                      No music added yet.
+                    </ThemedText>
+                  )}
+                  <Pressable
+                    onPress={openMusicEditor}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Add Music</ThemedText>
                   </Pressable>
                 </View>
               ) : null}
@@ -1320,7 +2194,13 @@ export default function MyRegionsScreen() {
                           <Pressable
                             accessibilityLabel={`Remove ${gymName}`}
                             accessibilityRole="button"
-                            onPress={() => removeGym(gymIndex)}
+                            onPress={() =>
+                              confirmDeletePrompt({
+                                title: "Remove gym?",
+                                message: `This will remove ${gymName} and its saved team from this region.`,
+                                onConfirm: () => removeGym(gymIndex),
+                              })
+                            }
                             style={({ pressed }) => [
                               styles.removeRouteButton,
                               pressed && styles.pressed,
@@ -1418,7 +2298,13 @@ export default function MyRegionsScreen() {
                           <Pressable
                             accessibilityLabel={`Remove ${memberName}`}
                             accessibilityRole="button"
-                            onPress={() => removeEliteFour(memberIndex)}
+                            onPress={() =>
+                              confirmDeletePrompt({
+                               title: "Remove Elite 4 member?",
+                               message: `This will delete ${memberName} from this region.`,
+                               onConfirm: () => removeEliteFour(memberIndex),
+                              })
+                            }
                             style={({ pressed }) => [
                               styles.removeRouteButton,
                               pressed && styles.pressed,
@@ -1461,7 +2347,13 @@ export default function MyRegionsScreen() {
                           <Pressable
                             accessibilityLabel={`Remove ${activeChampionName}`}
                             accessibilityRole="button"
-                            onPress={removeChampion}
+                            onPress={() =>
+                              confirmDeletePrompt({
+                                title: "Remove champion?",
+                                message: `This will remove ${activeChampionName} from this region.`,
+                                onConfirm: removeChampion,
+                              })
+                            }
                             style={({ pressed }) => [
                               styles.removeRouteButton,
                               pressed && styles.pressed,
@@ -1474,6 +2366,60 @@ export default function MyRegionsScreen() {
                     </ScrollView>
                   </View>
                 </Animated.View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={openGimmickSection}
+                style={styles.contentDropdownHeader}
+              >
+                <ThemedText type="smallBold">Gimmicks</ThemedText>
+                <ThemedText type="smallBold">
+                  {gimmicksExpanded ? "−" : "+"}
+                </ThemedText>
+              </Pressable>
+              {gimmicksExpanded ? (
+                <View style={styles.contentDropdownContent}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Select saved gimmicks for this region, or create one here.
+                  </ThemedText>
+                  {availableGimmicks.length > 0 ? (
+                    <View style={styles.gimmickOptions}>
+                      {availableGimmicks.map((gimmick) => (
+                        <Pressable
+                          key={gimmick.name}
+                          onPress={() => {
+                            toggleGimmick(gimmick.name);
+                          }}
+                          style={[
+                            styles.gimmickOption,
+                            selectedGimmicks.includes(gimmick.name) &&
+                              styles.selectedDropdown,
+                          ]}
+                        >
+                          <ThemedText type="smallBold">{gimmick.name}</ThemedText>
+                          {gimmick.category ? (
+                            <ThemedText type="small">
+                              {gimmick.category}
+                            </ThemedText>
+                          ) : null}
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : (
+                    <ThemedText type="small" style={styles.noGimmicksText}>
+                      No saved gimmicks yet.
+                    </ThemedText>
+                  )}
+                  <Pressable
+                    onPress={openGimmickCreate}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Create Gimmick</ThemedText>
+                  </Pressable>
+                </View>
               ) : null}
               <Pressable
                 accessibilityRole="button"
@@ -2040,12 +2986,20 @@ export default function MyRegionsScreen() {
                         style={styles.pokemonSearch}
                         value={pokemonSearch}
                       />
-                      <View style={styles.filterRow}>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.filterPicker}
+                      <View style={styles.filterHeader}>
+                        <ThemedText type="smallBold">Filters</ThemedText>
+                        <Pressable
+                          onPress={resetPokemonFilters}
+                          style={({ pressed }) => [
+                            styles.clearFilterButton,
+                            pressed && styles.pressed,
+                          ]}
                         >
+                          <ThemedText type="small">Clear</ThemedText>
+                        </Pressable>
+                      </View>
+                      <View style={styles.filterRow}>
+                        <View style={styles.filterWrap}>
                           <Pressable
                             onPress={() => setPokemonTypeFilter([])}
                             style={[
@@ -2079,12 +3033,8 @@ export default function MyRegionsScreen() {
                               </ThemedText>
                             </Pressable>
                           ))}
-                        </ScrollView>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.filterPicker}
-                        >
+                        </View>
+                        <View style={styles.filterWrap}>
                           <Pressable
                             onPress={() => setPokemonGenerationFilter("")}
                             style={[
@@ -2114,7 +3064,7 @@ export default function MyRegionsScreen() {
                               </ThemedText>
                             </Pressable>
                           ))}
-                        </ScrollView>
+                        </View>
                       </View>
                       {pokemonOptions
                         .filter(
@@ -2141,7 +3091,11 @@ export default function MyRegionsScreen() {
                             style={styles.pokemonOption}
                           >
                             <Image
-                              source={{ uri: getPokemonImageUrl(pokemon.url) }}
+                              source={{
+                                uri: pokemon.isCustom
+                                  ? pokemon.url || ""
+                                  : getPokemonImageUrl(pokemon.url),
+                              }}
                               style={styles.pokemonImage}
                             />
                             <ThemedText type="small">
@@ -2201,17 +3155,45 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: 32,
+    paddingBottom: 24,
   },
   emptyState: {
     alignItems: "center",
     gap: 16,
     marginTop: 24,
   },
+  emptyDescription: {
+    maxWidth: 420,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  emptyImportExportActions: {
+    width: "100%",
+    maxWidth: 440,
+    gap: 12,
+    alignItems: "stretch",
+  },
+  emptyImportExportButton: {
+    minHeight: 46,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  resetSavedDataButton: {
+    minHeight: 46,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 10,
+    backgroundColor: "rgba(196, 77, 77, 0.8)",
+  },
   createButton: {
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,
+    backgroundColor: "rgba(60, 135, 247, 0.88)",
   },
   regionsSection: {
     width: "100%",
@@ -2223,6 +3205,13 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 72,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(120, 140, 180, 0.18)",
+    shadowColor: "#000000",
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
   regionName: {
     fontSize: 28,
@@ -2231,6 +3220,13 @@ const styles = StyleSheet.create({
   regionList: {
     gap: 20,
     marginTop: 24,
+  },
+  regionCard: {
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(120, 140, 180, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
   },
   savedRegionName: {
     flex: 1,
@@ -2244,10 +3240,41 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 16,
   },
+  regionMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+    opacity: 0.8,
+  },
+  regionGimmickSummary: {
+    marginTop: 8,
+    opacity: 0.68,
+  },
   regionActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  footerActions: {
+    width: "100%",
+    maxWidth: 640,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 20,
+    paddingTop: 4,
+    paddingBottom: 8,
+    zIndex: 2,
+  },
+  toolbarButton: {
+    minWidth: 90,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(60, 135, 247, 0.8)",
+    alignItems: "center",
   },
   contentButton: {
     minHeight: 36,
@@ -2281,13 +3308,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0, 0, 0, 0.6)",
     padding: 12,
+    zIndex: 20,
   },
   menu: {
     width: "100%",
     maxWidth: 640,
     gap: 16,
-    padding: 32,
+    padding: 28,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(120, 140, 180, 0.2)",
+  },
+  importExportModal: {
+    width: "100%",
+    maxWidth: 640,
+    gap: 16,
+    padding: 24,
     borderRadius: 16,
+  },
+  importExportTextArea: {
+    minHeight: 220,
+    maxHeight: 360,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    color: "#ffffff",
+    textAlignVertical: "top",
+  },
+  importExportActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 12,
   },
   contentMenu: {
     width: "100%",
@@ -2327,6 +3379,65 @@ const styles = StyleSheet.create({
   contentDropdownContent: {
     gap: 12,
     paddingTop: 4,
+  },
+  gimmickOptions: {
+    gap: 8,
+  },
+  gimmickOption: {
+    gap: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(120, 140, 180, 0.12)",
+  },
+  noGimmicksText: {
+    opacity: 0.7,
+  },
+  musicList: {
+    gap: 8,
+  },
+  musicCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(120, 140, 180, 0.12)",
+  },
+  musicDetails: {
+    flex: 1,
+    gap: 8,
+  },
+  musicOpenButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 7,
+    backgroundColor: "rgba(60, 135, 247, 0.7)",
+  },
+  musicTypeOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  typeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "rgba(120, 140, 180, 0.18)",
+  },
+  secondaryAction: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: "rgba(120, 140, 180, 0.25)",
+  },
+  smallDeleteAction: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: "rgba(220, 70, 70, 0.7)",
   },
   gymActions: {
     flexDirection: "row",
@@ -2602,18 +3713,32 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     backgroundColor: "rgba(255, 255, 255, 0.12)",
   },
+  filterHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 8,
+  },
+  clearFilterButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
   filterRow: {
     gap: 8,
     marginBottom: 8,
   },
-  filterPicker: {
-    maxHeight: 42,
+  filterWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
   },
   filterOption: {
     minHeight: 36,
     justifyContent: "center",
     paddingHorizontal: 10,
-    marginRight: 6,
     borderRadius: 8,
     backgroundColor: "rgba(255, 255, 255, 0.12)",
   },
@@ -2659,6 +3784,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: "rgba(255, 255, 255, 0.12)",
     color: "#ffffff",
+  },
+  descriptionInput: {
+    minHeight: 100,
+    paddingTop: 12,
+    textAlignVertical: "top",
   },
   dropdown: {
     minHeight: 40,
