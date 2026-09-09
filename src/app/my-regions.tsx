@@ -1,5 +1,6 @@
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
+import { useLocalSearchParams } from "expo-router";
 import { createElement, useEffect, useRef, useState } from "react";
 import {
     Animated,
@@ -11,6 +12,7 @@ import {
     StyleSheet,
     TextInput,
     View,
+    Share,
 } from "react-native";
 
 import { getPokemon, type Pokemon } from "@/api/pokemon";
@@ -25,6 +27,19 @@ import {
   getMusicProvider,
   normalizeMusicUri,
 } from "@/utils/music";
+import {
+  createCommentResponseLink,
+  createRegionShareLink,
+  decodeSharedRegion,
+  type RegionSharePermission,
+} from "@/utils/region-sharing";
+import {
+  buildLiveShareLink,
+  generateRoomCode,
+  isLiveShareSupported,
+  LiveShareSession,
+  type LiveShareStatus,
+} from "@/utils/region-peer-share";
 
 const APP_STORAGE_VERSION = "v2";
 const REGIONS_STORAGE_KEY = `pokemon-regions-${APP_STORAGE_VERSION}`;
@@ -49,6 +64,9 @@ type Region = {
   mapPositions: Record<string, MapPosition>;
   gimmicks: string[];
   music: MusicEntry[];
+  sharePermission?: RegionSharePermission;
+  sharedComments?: string[];
+  liveRoomCode?: string;
 };
 type MusicEntry = {
   name: string;
@@ -197,7 +215,26 @@ function getSuggestedGymCount(routeCount: number) {
   return 8;
 }
 
+function ShareGlyph({ color }: { color: string }) {
+  return (
+    <View style={styles.shareGlyph} accessible={false}>
+      <View style={[styles.shareLineTop, { backgroundColor: color }]} />
+      <View style={[styles.shareLineBottom, { backgroundColor: color }]} />
+      <View style={[styles.shareNode, styles.shareNodeLeft, { backgroundColor: color }]} />
+      <View style={[styles.shareNode, styles.shareNodeTop, { backgroundColor: color }]} />
+      <View style={[styles.shareNode, styles.shareNodeBottom, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
 export default function MyRegionsScreen() {
+  const params = useLocalSearchParams<{
+    sharedRegion?: string;
+    permission?: string;
+    live?: string;
+    comment?: string;
+    commentResponse?: string;
+  }>();
   const [menuVisible, setMenuVisible] = useState(false);
   const [regionName, setRegionName] = useState("");
   const [rivalName, setRivalName] = useState("");
@@ -287,7 +324,246 @@ export default function MyRegionsScreen() {
   const [importText, setImportText] = useState("");
   const [exportText, setExportText] = useState("");
   const [importError, setImportError] = useState("");
+  const [shareVisible, setShareVisible] = useState(false);
+  const [shareRegionIndex, setShareRegionIndex] = useState<number | null>(null);
+  const [sharePermission, setSharePermission] =
+    useState<RegionSharePermission>("view");
+  const [shareComment, setShareComment] = useState("");
+  const [sharedComment, setSharedComment] = useState("");
+  const [sharedPermission, setSharedPermission] =
+    useState<RegionSharePermission | null>(null);
+  const [isCommentResponse, setIsCommentResponse] = useState(false);
+  const [commentEditorVisible, setCommentEditorVisible] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentSentMessage, setCommentSentMessage] = useState("");
+  const [shareMode, setShareMode] = useState<"link" | "live">("link");
+  const [liveShareStatus, setLiveShareStatus] = useState<
+    LiveShareStatus | "idle"
+  >("idle");
+  const [liveShareLink, setLiveShareLink] = useState("");
+  const [liveActivity, setLiveActivity] = useState<string[]>([]);
+  const liveSessionRef = useRef<LiveShareSession | null>(null);
+  const [liveGuestPermission, setLiveGuestPermission] =
+    useState<RegionSharePermission | null>(null);
+  const [guestCommentDraft, setGuestCommentDraft] = useState("");
+  const [guestCommentSent, setGuestCommentSent] = useState(false);
+  const [guestEditMessage, setGuestEditMessage] = useState("");
   const theme = useTheme();
+
+  function stopLiveShare() {
+    liveSessionRef.current?.close();
+    liveSessionRef.current = null;
+    setLiveShareStatus("idle");
+    setLiveShareLink("");
+    setLiveActivity([]);
+  }
+
+  function startLiveShare() {
+    if (shareRegionIndex === null || !isLiveShareSupported()) return;
+    const regionIndex = shareRegionIndex;
+    const roomCode = generateRoomCode();
+    setLiveShareLink(buildLiveShareLink(roomCode, sharePermission));
+    setLiveActivity([]);
+    setLiveShareStatus("connecting");
+
+    const session = new LiveShareSession(roomCode, "host");
+    session.onStatus = (status) => {
+      setLiveShareStatus(status);
+      if (status === "connected") {
+        session.send({ type: "region", region: regions[regionIndex] });
+        setLiveActivity((prev) => [...prev, "Connected. Region sent."]);
+      }
+      if (status === "closed" || status === "error") {
+        setLiveActivity((prev) => [
+          ...prev,
+          status === "error" ? "Connection error." : "Connection closed.",
+        ]);
+      }
+    };
+    session.onMessage = (message) => {
+      if (message.type === "comment") {
+        setLiveActivity((prev) => [...prev, `Comment: ${message.text}`]);
+      } else if (message.type === "edit") {
+        setRegions((current) => {
+          if (!current[regionIndex]) return current;
+          const next = [...current];
+          next[regionIndex] = {
+            ...(message.region as Region),
+            liveRoomCode: undefined,
+          };
+          return next;
+        });
+        setLiveActivity((prev) => [
+          ...prev,
+          "The other device sent updated region changes.",
+        ]);
+      }
+    };
+    liveSessionRef.current = session;
+    session.connect();
+  }
+
+  async function copyLiveShareLink() {
+    if (!liveShareLink) return;
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      await navigator.clipboard?.writeText(liveShareLink);
+      return;
+    }
+    await Share.share({ message: liveShareLink, title: "Live Share Link" });
+  }
+
+  function sendGuestComment() {
+    const text = guestCommentDraft.trim();
+    if (!text || !liveSessionRef.current) return;
+    const sent = liveSessionRef.current.send({ type: "comment", text });
+    if (sent) {
+      setGuestCommentDraft("");
+      setGuestCommentSent(true);
+      setTimeout(() => setGuestCommentSent(false), 3000);
+    }
+  }
+
+  function sendGuestEdits(region: Region) {
+    if (!liveSessionRef.current) return;
+    const { liveRoomCode: _omit, ...rest } = region;
+    const sent = liveSessionRef.current.send({ type: "edit", region: rest });
+    setGuestEditMessage(
+      sent ? "Changes sent to the region owner." : "Not connected yet.",
+    );
+    if (sent) setTimeout(() => setGuestEditMessage(""), 3000);
+  }
+
+  useEffect(() => {
+    return () => {
+      liveSessionRef.current?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const encodedRegion = Array.isArray(params.sharedRegion)
+      ? params.sharedRegion[0]
+      : params.sharedRegion;
+    if (!encodedRegion || !hasLoadedRegions) return;
+
+    try {
+      const shared = decodeSharedRegion(encodedRegion);
+      const permission =
+        params.permission === "edit" || params.permission === "comment"
+          ? params.permission
+          : "view";
+      const importedRegion = {
+        name: String(shared.name ?? "Shared Region"),
+        rivalName: String(shared.rivalName ?? ""),
+        type: String(shared.type ?? ""),
+        routes: String(shared.routes ?? ""),
+        routeNames: Array.isArray(shared.routeNames) ? shared.routeNames : [],
+        routePokemon:
+          (shared.routePokemon as Record<string, RoutePokemon[]>) ?? {},
+        gyms: Array.isArray(shared.gyms) ? shared.gyms : [],
+        gymPokemon: Array.isArray(shared.gymPokemon) ? shared.gymPokemon : [],
+        eliteFour: Array.isArray(shared.eliteFour) ? shared.eliteFour : [],
+        eliteFourPokemon: Array.isArray(shared.eliteFourPokemon)
+          ? shared.eliteFourPokemon
+          : [],
+        champion: typeof shared.champion === "string" ? shared.champion : null,
+        championPokemon: Array.isArray(shared.championPokemon)
+          ? shared.championPokemon
+          : [],
+        mapPositions: (shared.mapPositions as Record<string, MapPosition>) ?? {},
+        gimmicks: Array.isArray(shared.gimmicks) ? shared.gimmicks : [],
+        music: Array.isArray(shared.music) ? shared.music : [],
+        sharePermission: permission,
+        sharedComments: [],
+      } satisfies Region;
+      setRegions((currentRegions) => [...currentRegions, importedRegion]);
+    } catch {
+      setImportError("This shared region link is invalid or incomplete.");
+    }
+  }, [hasLoadedRegions, params.permission, params.sharedRegion]);
+
+  useEffect(() => {
+    const encodedRegion = Array.isArray(params.sharedRegion)
+      ? params.sharedRegion[0]
+      : params.sharedRegion;
+    if (!encodedRegion) return;
+
+    setIsCommentResponse(params.commentResponse === "1");
+    const permission = params.permission;
+    if (
+      permission === "view" ||
+      permission === "edit" ||
+      permission === "comment"
+    ) {
+      setSharedPermission(permission);
+    }
+    const comment = Array.isArray(params.comment)
+      ? params.comment[0]
+      : params.comment;
+    if (comment) setSharedComment(comment);
+  }, [
+    params.comment,
+    params.commentResponse,
+    params.permission,
+    params.sharedRegion,
+  ]);
+
+  useEffect(() => {
+    const roomCode = Array.isArray(params.live) ? params.live[0] : params.live;
+    if (!roomCode || !hasLoadedRegions || !isLiveShareSupported()) return;
+    if (liveSessionRef.current) return;
+
+    const permission =
+      params.permission === "edit" || params.permission === "comment"
+        ? params.permission
+        : "view";
+    setLiveGuestPermission(permission);
+    setLiveShareStatus("connecting");
+
+    const session = new LiveShareSession(roomCode, "guest");
+    session.onStatus = setLiveShareStatus;
+    session.onMessage = (message) => {
+      if (message.type !== "region") return;
+      const shared = message.region as Record<string, unknown>;
+      const importedRegion = {
+        name: String(shared.name ?? "Shared Region"),
+        rivalName: String(shared.rivalName ?? ""),
+        type: String(shared.type ?? ""),
+        routes: String(shared.routes ?? ""),
+        routeNames: Array.isArray(shared.routeNames) ? shared.routeNames : [],
+        routePokemon:
+          (shared.routePokemon as Record<string, RoutePokemon[]>) ?? {},
+        gyms: Array.isArray(shared.gyms) ? shared.gyms : [],
+        gymPokemon: Array.isArray(shared.gymPokemon) ? shared.gymPokemon : [],
+        eliteFour: Array.isArray(shared.eliteFour) ? shared.eliteFour : [],
+        eliteFourPokemon: Array.isArray(shared.eliteFourPokemon)
+          ? shared.eliteFourPokemon
+          : [],
+        champion: typeof shared.champion === "string" ? shared.champion : null,
+        championPokemon: Array.isArray(shared.championPokemon)
+          ? shared.championPokemon
+          : [],
+        mapPositions: (shared.mapPositions as Record<string, MapPosition>) ?? {},
+        gimmicks: Array.isArray(shared.gimmicks) ? shared.gimmicks : [],
+        music: Array.isArray(shared.music) ? shared.music : [],
+        sharePermission: permission,
+        sharedComments: [],
+        liveRoomCode: roomCode,
+      } satisfies Region;
+      setRegions((current) => {
+        const existingIndex = current.findIndex(
+          (region) => region.liveRoomCode === roomCode,
+        );
+        if (existingIndex >= 0) {
+          const next = [...current];
+          next[existingIndex] = importedRegion;
+          return next;
+        }
+        return [...current, importedRegion];
+      });
+    };
+    liveSessionRef.current = session;
+    session.connect();
+  }, [hasLoadedRegions, params.live, params.permission]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -319,6 +595,11 @@ export default function MyRegionsScreen() {
             mapPositions: region.mapPositions ?? {},
             gimmicks: Array.isArray(region.gimmicks) ? region.gimmicks : [],
             music: Array.isArray(region.music) ? region.music : [],
+            sharePermission: region.sharePermission,
+            sharedComments: Array.isArray(region.sharedComments)
+              ? region.sharedComments
+              : [],
+            liveRoomCode: region.liveRoomCode,
           })),
         );
       } catch {
@@ -1358,6 +1639,58 @@ export default function MyRegionsScreen() {
     setImportExportVisible(false);
   }
 
+  async function shareRegion() {
+    if (shareRegionIndex === null) return;
+    const link = createRegionShareLink(
+      regions[shareRegionIndex],
+      sharePermission,
+      shareComment,
+    );
+    if (!link) return;
+
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      await navigator.clipboard?.writeText(link);
+      setShareVisible(false);
+      return;
+    }
+
+    await Share.share({
+      message: link,
+      title: `Share ${regions[shareRegionIndex]?.name ?? "region"}`,
+    });
+    setShareVisible(false);
+  }
+
+  function saveSharedComment() {
+    const comment = commentDraft.trim();
+    if (!comment) return;
+    setSharedComment(comment);
+    setCommentDraft("");
+    setCommentEditorVisible(false);
+  }
+
+  async function sendCommentToOwner() {
+    if (!sharedComment || !regions[0]) return;
+    const responseLink = createCommentResponseLink(regions[0], sharedComment);
+    if (!responseLink) return;
+
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      await navigator.clipboard?.writeText(responseLink);
+      setCommentSentMessage(
+        "Comment response link copied. Send it to the region owner so they can view your comment.",
+      );
+      return;
+    }
+
+    await Share.share({
+      message: responseLink,
+      title: "Comment response link",
+    });
+    setCommentSentMessage(
+      "Comment response link opened. Send it to the region owner.",
+    );
+  }
+
   const activeContentRegion =
     contentRegionIndex === null ? null : regions[contentRegionIndex];
   const activeRouteNames = activeContentRegion?.routeNames ?? [];
@@ -1382,6 +1715,137 @@ export default function MyRegionsScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="title">My Regions</ThemedText>
+      {liveGuestPermission ? (
+        <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
+          <ThemedText type="smallBold">
+            Live Shared Region —{" "}
+            {liveShareStatus === "connected"
+              ? "Connected"
+              : liveShareStatus === "waiting-for-peer" ||
+                  liveShareStatus === "connecting"
+                ? "Connecting…"
+                : liveShareStatus === "error"
+                  ? "Connection error"
+                  : "Disconnected"}
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            This region syncs directly with the owner&apos;s device while
+            this connection stays open. Nothing is stored on a server.
+          </ThemedText>
+          {liveGuestPermission === "comment" ? (
+            <View style={styles.liveGuestActions}>
+              <TextInput
+                onChangeText={setGuestCommentDraft}
+                placeholder="Add a comment"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.input}
+                value={guestCommentDraft}
+              />
+              <Pressable
+                onPress={sendGuestComment}
+                disabled={!guestCommentDraft.trim()}
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  !guestCommentDraft.trim() && styles.disabledButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Send Comment</ThemedText>
+              </Pressable>
+              {guestCommentSent ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  Comment sent ✓
+                </ThemedText>
+              ) : null}
+            </View>
+          ) : null}
+          {liveGuestPermission === "edit"
+            ? (() => {
+                const liveIndex = regions.findIndex(
+                  (region) => region.liveRoomCode,
+                );
+                if (liveIndex < 0) return null;
+                return (
+                  <View style={styles.liveGuestActions}>
+                    <Pressable
+                      onPress={() => sendGuestEdits(regions[liveIndex])}
+                      style={({ pressed }) => [
+                        styles.secondaryAction,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <ThemedText type="smallBold">
+                        Send My Edits to Owner
+                      </ThemedText>
+                    </Pressable>
+                    {guestEditMessage ? (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {guestEditMessage}
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                );
+              })()
+            : null}
+        </ThemedView>
+      ) : null}
+      {sharedPermission ? (
+        <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
+          <ThemedText type="smallBold">
+            {isCommentResponse
+              ? "Comment received"
+              : `Shared access: ${
+                  sharedPermission === "view"
+                    ? "View only"
+                    : sharedPermission === "comment"
+                      ? "Can comment"
+                      : "Can edit"
+                }`}
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {isCommentResponse
+              ? "This comment was sent back in a response link. Save or copy it into your region notes as needed."
+              : "This is a local shared copy. Permissions and comments travel with the link, but accounts and live synchronization are not available."}
+          </ThemedText>
+          {sharedComment ? (
+            <ThemedText type="small">Comment: {sharedComment}</ThemedText>
+          ) : null}
+          {sharedPermission === "comment" && !isCommentResponse ? (
+            <View style={styles.liveGuestActions}>
+              <Pressable
+                onPress={() => {
+                  setCommentDraft(sharedComment);
+                  setCommentEditorVisible(true);
+                }}
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">
+                  {sharedComment ? "Edit Comment" : "Add Comment"}
+                </ThemedText>
+              </Pressable>
+              {sharedComment ? (
+                <Pressable
+                  onPress={() => void sendCommentToOwner()}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Send Comment Back</ThemedText>
+                </Pressable>
+              ) : null}
+              {commentSentMessage ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {commentSentMessage}
+                </ThemedText>
+              ) : null}
+            </View>
+          ) : null}
+        </ThemedView>
+      ) : null}
       {regions.length === 0 ? (
         <ThemedView style={styles.emptyState}>
           <ThemedText type="subtitle">Don&apos;t Have A Region?</ThemedText>
@@ -1459,6 +1923,30 @@ export default function MyRegionsScreen() {
                       >
                         <ThemedText type="smallBold">Content</ThemedText>
                       </Pressable>
+                      {(!region.sharePermission ||
+                        region.sharePermission === "edit") &&
+                      (!region.liveRoomCode ||
+                        !liveGuestPermission ||
+                        liveGuestPermission === "edit") ? (
+                        <Pressable
+                          accessibilityLabel={`Share ${region.name}`}
+                          accessibilityRole="button"
+                          onPress={() => {
+                            setShareRegionIndex(index);
+                            setSharePermission("view");
+                            setShareComment("");
+                            setShareMode("link");
+                            stopLiveShare();
+                            setShareVisible(true);
+                          }}
+                          style={({ pressed }) => [
+                            styles.iconActionButton,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <ShareGlyph color={theme.text} />
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                   <View style={styles.regionMetaRow}>
@@ -1544,6 +2032,254 @@ export default function MyRegionsScreen() {
           </Pressable>
         </View>
       ) : null}
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          setShareVisible(false);
+          stopLiveShare();
+        }}
+        transparent
+        visible={shareVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.shareMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              Share {shareRegionIndex === null ? "Region" : regions[shareRegionIndex]?.name}
+            </ThemedText>
+            <View style={styles.shareModeOptions}>
+              <Pressable
+                onPress={() => setShareMode("link")}
+                style={[
+                  styles.shareModeOption,
+                  shareMode === "link" && styles.selectedDropdown,
+                ]}
+              >
+                <ThemedText type="smallBold">Share Link</ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={() => setShareMode("live")}
+                style={[
+                  styles.shareModeOption,
+                  shareMode === "live" && styles.selectedDropdown,
+                ]}
+              >
+                <ThemedText type="smallBold">Live Share (Beta)</ThemedText>
+              </Pressable>
+            </View>
+            {shareMode === "link" ? (
+              <>
+                <ThemedText type="small" themeColor="textSecondary">
+                  This creates a self-contained link. It is not real-time
+                  collaboration; the recipient receives a local copy with the
+                  selected permission.
+                </ThemedText>
+                <View style={styles.sharePermissionOptions}>
+                  {(
+                    [
+                      ["view", "View only"],
+                      ["comment", "Can comment"],
+                      ["edit", "Can edit"],
+                    ] as [RegionSharePermission, string][]
+                  ).map(([permission, label]) => (
+                    <Pressable
+                      key={permission}
+                      onPress={() => setSharePermission(permission)}
+                      style={[
+                        styles.sharePermissionOption,
+                        sharePermission === permission &&
+                          styles.selectedDropdown,
+                      ]}
+                    >
+                      <ThemedText type="smallBold">{label}</ThemedText>
+                    </Pressable>
+                  ))}
+                </View>
+                {sharePermission === "comment" ? (
+                  <TextInput
+                    onChangeText={setShareComment}
+                    placeholder="Optional starting comment"
+                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                    style={styles.input}
+                    value={shareComment}
+                  />
+                ) : null}
+                <Pressable
+                  onPress={() => void shareRegion()}
+                  style={({ pressed }) => [
+                    styles.createMenuButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">
+                    {Platform.OS === "web" ? "Copy Share Link" : "Share Link"}
+                  </ThemedText>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Live Share sends this region directly to another open
+                  device over a temporary peer-to-peer connection. Only a
+                  brief connection-setup message passes through our
+                  signaling service; no region data is stored there.
+                </ThemedText>
+                {!isLiveShareSupported() ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Live Share is only available in the web version of this
+                    app.
+                  </ThemedText>
+                ) : liveShareStatus === "idle" ? (
+                  <>
+                    <View style={styles.sharePermissionOptions}>
+                      {(
+                        [
+                          ["view", "View only"],
+                          ["comment", "Can comment"],
+                          ["edit", "Can edit"],
+                        ] as [RegionSharePermission, string][]
+                      ).map(([permission, label]) => (
+                        <Pressable
+                          key={permission}
+                          onPress={() => setSharePermission(permission)}
+                          style={[
+                            styles.sharePermissionOption,
+                            sharePermission === permission &&
+                              styles.selectedDropdown,
+                          ]}
+                        >
+                          <ThemedText type="smallBold">{label}</ThemedText>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Pressable
+                      onPress={startLiveShare}
+                      style={({ pressed }) => [
+                        styles.createMenuButton,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <ThemedText type="smallBold">
+                        Start Live Share
+                      </ThemedText>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <ThemedText type="smallBold">
+                      Status:{" "}
+                      {liveShareStatus === "connected"
+                        ? "Connected"
+                        : liveShareStatus === "waiting-for-peer"
+                          ? "Waiting for the other device…"
+                          : liveShareStatus === "connecting"
+                            ? "Connecting…"
+                            : liveShareStatus === "error"
+                              ? "Connection error"
+                              : "Closed"}
+                    </ThemedText>
+                    {liveShareLink ? (
+                      <Pressable
+                        onPress={() => void copyLiveShareLink()}
+                        style={({ pressed }) => [
+                          styles.secondaryAction,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">
+                          {Platform.OS === "web"
+                            ? "Copy Live Share Link"
+                            : "Share Live Link"}
+                        </ThemedText>
+                      </Pressable>
+                    ) : null}
+                    {liveActivity.length > 0 ? (
+                      <View style={styles.liveActivityList}>
+                        <ThemedText type="smallBold">Activity</ThemedText>
+                        {liveActivity.map((entry, entryIndex) => (
+                          <ThemedText
+                            key={entryIndex}
+                            type="small"
+                            themeColor="textSecondary"
+                          >
+                            {entry}
+                          </ThemedText>
+                        ))}
+                      </View>
+                    ) : null}
+                    <Pressable
+                      onPress={stopLiveShare}
+                      style={({ pressed }) => [
+                        styles.smallDeleteAction,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <ThemedText type="smallBold">
+                        Stop Live Share
+                      </ThemedText>
+                    </Pressable>
+                  </>
+                )}
+              </>
+            )}
+            <Pressable
+              onPress={() => {
+                setShareVisible(false);
+                stopLiveShare();
+              }}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Close</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setCommentEditorVisible(false)}
+        transparent
+        visible={commentEditorVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.shareMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              {sharedComment ? "Edit Comment" : "Add Comment"}
+            </ThemedText>
+            <TextInput
+              multiline
+              onChangeText={setCommentDraft}
+              placeholder="Share your thoughts on this region"
+              placeholderTextColor="rgba(255, 255, 255, 0.6)"
+              style={[styles.input, styles.descriptionInput]}
+              value={commentDraft}
+            />
+            <Pressable
+              onPress={saveSharedComment}
+              disabled={!commentDraft.trim()}
+              style={({ pressed }) => [
+                styles.createMenuButton,
+                !commentDraft.trim() && styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Save Comment</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => setCommentEditorVisible(false)}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Cancel</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
 
       <Modal
         animationType="fade"
@@ -3256,6 +3992,53 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  iconActionButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareGlyph: {
+    width: 24,
+    height: 22,
+    position: "relative",
+  },
+  shareNode: {
+    position: "absolute",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  shareNodeLeft: {
+    left: 1,
+    top: 7,
+  },
+  shareNodeTop: {
+    right: 1,
+    top: 1,
+  },
+  shareNodeBottom: {
+    right: 1,
+    bottom: 1,
+  },
+  shareLineTop: {
+    position: "absolute",
+    left: 6,
+    top: 7,
+    width: 15,
+    height: 3,
+    transform: [{ rotate: "-29deg" }],
+    borderRadius: 2,
+  },
+  shareLineBottom: {
+    position: "absolute",
+    left: 6,
+    bottom: 7,
+    width: 15,
+    height: 3,
+    transform: [{ rotate: "29deg" }],
+    borderRadius: 2,
+  },
   footerActions: {
     width: "100%",
     maxWidth: 640,
@@ -3318,6 +4101,56 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.2)",
+  },
+  shareMenu: {
+    width: "100%",
+    maxWidth: 520,
+    gap: 16,
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(120, 140, 180, 0.2)",
+  },
+  sharePermissionOptions: {
+    gap: 8,
+  },
+  sharePermissionOption: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: "rgba(120, 140, 180, 0.16)",
+  },
+  shareModeOptions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  shareModeOption: {
+    flex: 1,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(120, 140, 180, 0.16)",
+  },
+  liveActivityList: {
+    gap: 4,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(120, 140, 180, 0.12)",
+  },
+  liveGuestNotice: {
+    gap: 10,
+    padding: 16,
+    marginBottom: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(120, 140, 180, 0.2)",
+  },
+  liveGuestActions: {
+    gap: 8,
+    alignItems: "flex-start",
   },
   importExportModal: {
     width: "100%",
