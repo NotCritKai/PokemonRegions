@@ -55,7 +55,9 @@ type Region = {
   routes: string;
   routeNames: string[];
   routePokemon: Record<string, RoutePokemon[]>;
+  routeDetails: Record<string, RouteDetails>;
   gyms: string[];
+  gymDetails: GymDetails[];
   gymPokemon: TeamPokemon[][];
   eliteFour: string[];
   eliteFourPokemon: TeamPokemon[][];
@@ -81,6 +83,20 @@ type Gimmick = {
 type RoutePokemon = {
   name: string;
   percentage: string;
+};
+type RouteDetails = {
+  terrain: string;
+  difficulty: string;
+  items: string;
+  trainers: string;
+};
+type GymDetails = {
+  leader: string;
+  specialty: string;
+  badge: string;
+  levelCap: string;
+  reward: string;
+  puzzle: string;
 };
 type TeamPokemon = {
   name: string;
@@ -283,6 +299,14 @@ export default function MyRegionsScreen() {
   const [gymContentMenuVisible, setGymContentMenuVisible] = useState(false);
   const [editingGymIndex, setEditingGymIndex] = useState<number | null>(null);
   const [gymName, setGymName] = useState("");
+  const [gymDetails, setGymDetails] = useState<GymDetails>({
+    leader: "",
+    specialty: "",
+    badge: "",
+    levelCap: "",
+    reward: "",
+    puzzle: "",
+  });
   const [teamMenuVisible, setTeamMenuVisible] = useState(false);
   const [teamKind, setTeamKind] = useState<
     "gym" | "eliteFour" | "champion" | null
@@ -310,6 +334,12 @@ export default function MyRegionsScreen() {
   const [selectedRoutePokemon, setSelectedRoutePokemon] = useState<
     RoutePokemon[]
   >([]);
+  const [routeDetails, setRouteDetails] = useState<RouteDetails>({
+    terrain: "",
+    difficulty: "",
+    items: "",
+    trainers: "",
+  });
   const [pokemonOptions, setPokemonOptions] = useState<Pokemon[]>([]);
   const [pokemonMenuIndex, setPokemonMenuIndex] = useState<number | null>(null);
   const [pokemonSearch, setPokemonSearch] = useState("");
@@ -459,7 +489,10 @@ export default function MyRegionsScreen() {
         routeNames: Array.isArray(shared.routeNames) ? shared.routeNames : [],
         routePokemon:
           (shared.routePokemon as Record<string, RoutePokemon[]>) ?? {},
+        routeDetails:
+          (shared.routeDetails as Record<string, RouteDetails>) ?? {},
         gyms: Array.isArray(shared.gyms) ? shared.gyms : [],
+        gymDetails: Array.isArray(shared.gymDetails) ? shared.gymDetails : [],
         gymPokemon: Array.isArray(shared.gymPokemon) ? shared.gymPokemon : [],
         eliteFour: Array.isArray(shared.eliteFour) ? shared.eliteFour : [],
         eliteFourPokemon: Array.isArray(shared.eliteFourPokemon)
@@ -532,7 +565,10 @@ export default function MyRegionsScreen() {
         routeNames: Array.isArray(shared.routeNames) ? shared.routeNames : [],
         routePokemon:
           (shared.routePokemon as Record<string, RoutePokemon[]>) ?? {},
+        routeDetails:
+          (shared.routeDetails as Record<string, RouteDetails>) ?? {},
         gyms: Array.isArray(shared.gyms) ? shared.gyms : [],
+        gymDetails: Array.isArray(shared.gymDetails) ? shared.gymDetails : [],
         gymPokemon: Array.isArray(shared.gymPokemon) ? shared.gymPokemon : [],
         eliteFour: Array.isArray(shared.eliteFour) ? shared.eliteFour : [],
         eliteFourPokemon: Array.isArray(shared.eliteFourPokemon)
@@ -586,7 +622,9 @@ export default function MyRegionsScreen() {
             routes: region.routes ?? "",
             routeNames: region.routeNames ?? [],
             routePokemon: region.routePokemon ?? {},
+            routeDetails: region.routeDetails ?? {},
             gyms: region.gyms ?? [],
+            gymDetails: region.gymDetails ?? [],
             gymPokemon: region.gymPokemon ?? [],
             eliteFour: region.eliteFour ?? [],
             eliteFourPokemon: region.eliteFourPokemon ?? [],
@@ -949,6 +987,19 @@ export default function MyRegionsScreen() {
               name.startsWith("Route ") ? `Route ${currentIndex + 1}` : name,
             ),
           routePokemon,
+          routeDetails: Object.fromEntries(
+            region.routeNames
+              .filter((_, currentIndex) => currentIndex !== routeIndex)
+              .map((name, currentIndex) => [
+                name.startsWith("Route ") ? `Route ${currentIndex + 1}` : name,
+                region.routeDetails[name] ?? {
+                  terrain: "",
+                  difficulty: "",
+                  items: "",
+                  trainers: "",
+                },
+              ]),
+          ),
         };
       }),
     );
@@ -973,6 +1024,17 @@ export default function MyRegionsScreen() {
               { length: numberToAdd },
               (_, gymIndex) => `Gym ${gyms.length + gymIndex + 1}`,
             ),
+          ],
+          gymDetails: [
+            ...(region.gymDetails ?? []),
+            ...Array.from({ length: numberToAdd }, () => ({
+              leader: "",
+              specialty: "",
+              badge: "",
+              levelCap: "",
+              reward: "",
+              puzzle: "",
+            })),
           ],
           gymPokemon: [
             ...(region.gymPokemon ?? []),
@@ -1001,6 +1063,16 @@ export default function MyRegionsScreen() {
   function openGymMenu(index: number) {
     setEditingGymIndex(index);
     setGymName(activeGymNames[index] ?? "");
+    setGymDetails(
+      activeContentRegion?.gymDetails[index] ?? {
+        leader: "",
+        specialty: "",
+        badge: "",
+        levelCap: "",
+        reward: "",
+        puzzle: "",
+      },
+    );
     setGymContentMenuVisible(true);
   }
 
@@ -1092,16 +1164,18 @@ export default function MyRegionsScreen() {
 
     const name = gymName.trim() || `Gym ${editingGymIndex + 1}`;
     setRegions((currentRegions) =>
-      currentRegions.map((region, index) =>
-        index === contentRegionIndex
-          ? {
-              ...region,
-              gyms: region.gyms.map((gym, gymIndex) =>
-                gymIndex === editingGymIndex ? name : gym,
-              ),
-            }
-          : region,
-      ),
+      currentRegions.map((region, index) => {
+        if (index !== contentRegionIndex) return region;
+        const nextGymDetails = [...region.gymDetails];
+        nextGymDetails[editingGymIndex] = gymDetails;
+        return {
+          ...region,
+          gyms: region.gyms.map((gym, gymIndex) =>
+            gymIndex === editingGymIndex ? name : gym,
+          ),
+          gymDetails: nextGymDetails,
+        };
+      }),
     );
     setGymContentMenuVisible(false);
   }
@@ -1120,6 +1194,9 @@ export default function MyRegionsScreen() {
             .map((name, currentIndex) =>
               name.startsWith("Gym ") ? `Gym ${currentIndex + 1}` : name,
             ),
+          gymDetails: region.gymDetails.filter(
+            (_, currentIndex) => currentIndex !== gymIndex,
+          ),
           gymPokemon: region.gymPokemon.filter(
             (_, currentIndex) => currentIndex !== gymIndex,
           ),
@@ -1358,6 +1435,14 @@ export default function MyRegionsScreen() {
     setSelectedRoutePokemon(
       activeContentRegion?.routePokemon?.[routeName] ?? [],
     );
+    setRouteDetails(
+      activeContentRegion?.routeDetails?.[routeName] ?? {
+        terrain: "",
+        difficulty: "",
+        items: "",
+        trainers: "",
+      },
+    );
     setPercentageError(false);
     setPokemonSearch("");
     setPokemonTypeFilter([]);
@@ -1383,7 +1468,9 @@ export default function MyRegionsScreen() {
         routes: routeCount,
         routeNames: [],
         routePokemon: {},
+        routeDetails: {},
         gyms: [],
+        gymDetails: [],
         gymPokemon: [],
         eliteFour: [],
         eliteFourPokemon: [],
@@ -1405,13 +1492,16 @@ export default function MyRegionsScreen() {
       currentRegions.map((region, index) =>
         index === editingRegionIndex
           ? {
+              ...region,
               name,
               rivalName: rivalName.trim(),
               type: regionType,
               routes: routeCount,
               routeNames: region.routeNames ?? [],
               routePokemon: region.routePokemon ?? {},
+              routeDetails: region.routeDetails ?? {},
               gyms: region.gyms ?? [],
+              gymDetails: region.gymDetails ?? [],
               gymPokemon: region.gymPokemon ?? [],
               eliteFour: region.eliteFour ?? [],
               eliteFourPokemon: region.eliteFourPokemon ?? [],
@@ -1464,6 +1554,10 @@ export default function MyRegionsScreen() {
               routePokemon: {
                 ...region.routePokemon,
                 [selectedRouteName]: selectedRoutePokemon,
+              },
+              routeDetails: {
+                ...region.routeDetails,
+                [selectedRouteName]: routeDetails,
               },
             }
           : region,
@@ -1542,7 +1636,14 @@ export default function MyRegionsScreen() {
           region.routePokemon && typeof region.routePokemon === "object"
             ? (region.routePokemon as Record<string, RoutePokemon[]>)
             : {},
+        routeDetails:
+          region.routeDetails && typeof region.routeDetails === "object"
+            ? (region.routeDetails as Record<string, RouteDetails>)
+            : {},
         gyms: Array.isArray(region.gyms) ? region.gyms : [],
+        gymDetails: Array.isArray(region.gymDetails)
+          ? region.gymDetails
+          : [],
         gymPokemon: Array.isArray(region.gymPokemon) ? region.gymPokemon : [],
         eliteFour: Array.isArray(region.eliteFour) ? region.eliteFour : [],
         eliteFourPokemon: Array.isArray(region.eliteFourPokemon)
@@ -2685,6 +2786,32 @@ export default function MyRegionsScreen() {
                   ? "Content"
                   : `Content - ${regions[contentRegionIndex]?.name ?? "Region"}`}
               </ThemedText>
+              <View style={styles.overviewGrid}>
+                <View style={styles.overviewStat}>
+                  <ThemedText type="smallBold">Routes</ThemedText>
+                  <ThemedText type="subtitle">
+                    {activeRouteNames.length}
+                  </ThemedText>
+                </View>
+                <View style={styles.overviewStat}>
+                  <ThemedText type="smallBold">Gyms</ThemedText>
+                  <ThemedText type="subtitle">
+                    {activeGymNames.length}
+                  </ThemedText>
+                </View>
+                <View style={styles.overviewStat}>
+                  <ThemedText type="smallBold">Elite 4</ThemedText>
+                  <ThemedText type="subtitle">
+                    {activeEliteFourNames.length}/4
+                  </ThemedText>
+                </View>
+                <View style={styles.overviewStat}>
+                  <ThemedText type="smallBold">Champion</ThemedText>
+                  <ThemedText type="subtitle">
+                    {activeChampionName ? "Yes" : "No"}
+                  </ThemedText>
+                </View>
+              </View>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => toggleContentSection("routes")}
@@ -3388,6 +3515,48 @@ export default function MyRegionsScreen() {
                 value={gymName}
               />
             </View>
+            <DetailInput
+              label="Leader"
+              value={gymDetails.leader}
+              onChangeText={(value) =>
+                setGymDetails((current) => ({ ...current, leader: value }))
+              }
+            />
+            <DetailInput
+              label="Specialty"
+              value={gymDetails.specialty}
+              onChangeText={(value) =>
+                setGymDetails((current) => ({ ...current, specialty: value }))
+              }
+            />
+            <DetailInput
+              label="Badge"
+              value={gymDetails.badge}
+              onChangeText={(value) =>
+                setGymDetails((current) => ({ ...current, badge: value }))
+              }
+            />
+            <DetailInput
+              label="Level Cap"
+              value={gymDetails.levelCap}
+              onChangeText={(value) =>
+                setGymDetails((current) => ({ ...current, levelCap: value }))
+              }
+            />
+            <DetailInput
+              label="Reward"
+              value={gymDetails.reward}
+              onChangeText={(value) =>
+                setGymDetails((current) => ({ ...current, reward: value }))
+              }
+            />
+            <DetailInput
+              label="Puzzle"
+              value={gymDetails.puzzle}
+              onChangeText={(value) =>
+                setGymDetails((current) => ({ ...current, puzzle: value }))
+              }
+            />
             <Pressable
               onPress={saveGym}
               style={({ pressed }) => [
@@ -3656,6 +3825,40 @@ export default function MyRegionsScreen() {
             <ThemedText type="subtitle" style={styles.contentMenuTitle}>
               {selectedRouteName}
             </ThemedText>
+            <DetailInput
+              label="Terrain"
+              value={routeDetails.terrain}
+              onChangeText={(value) =>
+                setRouteDetails((current) => ({ ...current, terrain: value }))
+              }
+            />
+            <DetailInput
+              label="Difficulty"
+              value={routeDetails.difficulty}
+              onChangeText={(value) =>
+                setRouteDetails((current) => ({
+                  ...current,
+                  difficulty: value,
+                }))
+              }
+            />
+            <DetailInput
+              label="Items"
+              value={routeDetails.items}
+              onChangeText={(value) =>
+                setRouteDetails((current) => ({ ...current, items: value }))
+              }
+            />
+            <DetailInput
+              label="Trainers"
+              value={routeDetails.trainers}
+              onChangeText={(value) =>
+                setRouteDetails((current) => ({
+                  ...current,
+                  trainers: value,
+                }))
+              }
+            />
             <View style={styles.pokemonFieldLabels}>
               <ThemedText type="smallBold" style={styles.pokemonLabel}>
                 Pokemon
@@ -3887,6 +4090,29 @@ export default function MyRegionsScreen() {
   );
 }
 
+function DetailInput({
+  label,
+  value,
+  onChangeText,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+}) {
+  return (
+    <View style={styles.fieldGroup}>
+      <ThemedText type="smallBold">{label}</ThemedText>
+      <TextInput
+        onChangeText={onChangeText}
+        placeholder={label}
+        placeholderTextColor="rgba(255, 255, 255, 0.6)"
+        style={styles.input}
+        value={value}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -3910,6 +4136,21 @@ const styles = StyleSheet.create({
     maxWidth: 440,
     gap: 12,
     alignItems: "stretch",
+  },
+  overviewGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 20,
+  },
+  overviewStat: {
+    minWidth: 120,
+    flexGrow: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    gap: 6,
   },
   emptyImportExportButton: {
     minHeight: 46,
