@@ -3,6 +3,8 @@ export type Pokemon = {
   url: string;
   types: string[];
   generation: number;
+  imageUrl?: string;
+  isCustom?: boolean;
 };
 
 const generationNumbers: Record<string, number> = {

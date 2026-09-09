@@ -9,11 +9,11 @@ import {
 } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
+import { confirmDeleteAction } from "@/utils/delete-confirmation";
 import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
 
 const GIMMICKS_STORAGE_KEY = "pokemon-gimmicks";
-const REGIONS_STORAGE_KEY = "pokemon-regions";
 const gimmickCategories = [
   "Transformation",
   "Battle Effect",
@@ -41,11 +41,6 @@ type Gimmick = {
   name: string;
   category: string;
   description: string;
-  regionNames: string[];
-};
-
-type StoredRegion = {
-  name?: string;
 };
 
 export default function MyGimmicksScreen() {
@@ -59,8 +54,7 @@ export default function MyGimmicksScreen() {
   const [gimmickCategory, setGimmickCategory] = useState("");
   const [gimmickDescription, setGimmickDescription] = useState("");
   const [categorySummaryVisible, setCategorySummaryVisible] = useState(false);
-  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
-  const [selectedRegionNames, setSelectedRegionNames] = useState<string[]>([]);
+  const [gimmickSearch, setGimmickSearch] = useState("");
   const theme = useTheme();
 
   useEffect(() => {
@@ -75,7 +69,6 @@ export default function MyGimmicksScreen() {
             name: gimmick.name ?? "",
             category: gimmick.category ?? "",
             description: gimmick.description ?? "",
-            regionNames: gimmick.regionNames ?? [],
           })),
         );
       } catch {
@@ -94,38 +87,11 @@ export default function MyGimmicksScreen() {
     }
   }, [gimmicks, hasLoadedGimmicks]);
 
-  function loadRegions() {
-    if (typeof window === "undefined") return;
-
-    const storedRegions = window.localStorage.getItem(REGIONS_STORAGE_KEY);
-    if (!storedRegions) {
-      setAvailableRegions([]);
-      return;
-    }
-
-    try {
-      const regions = JSON.parse(storedRegions) as StoredRegion[];
-      setAvailableRegions(
-        Array.from(
-          new Set(
-            regions
-              .map((region) => region.name?.trim())
-              .filter((name): name is string => Boolean(name)),
-          ),
-        ),
-      );
-    } catch {
-      setAvailableRegions([]);
-    }
-  }
-
   function openCreateMenu() {
     setGimmickName("");
     setGimmickCategory("");
     setGimmickDescription("");
     setCategorySummaryVisible(false);
-    setSelectedRegionNames([]);
-    loadRegions();
     setEditingGimmickIndex(null);
     setMenuVisible(true);
   }
@@ -136,8 +102,6 @@ export default function MyGimmicksScreen() {
     setGimmickCategory(gimmick.category);
     setGimmickDescription(gimmick.description);
     setCategorySummaryVisible(false);
-    setSelectedRegionNames(gimmick.regionNames);
-    loadRegions();
     setEditingGimmickIndex(index);
     setMenuVisible(true);
   }
@@ -150,7 +114,6 @@ export default function MyGimmicksScreen() {
       name,
       category: gimmickCategory,
       description: gimmickDescription.trim(),
-      regionNames: selectedRegionNames,
     };
 
     if (editingGimmickIndex === null) {
@@ -174,18 +137,14 @@ export default function MyGimmicksScreen() {
     setMenuVisible(false);
   }
 
-  function toggleRegion(regionName: string) {
-    setSelectedRegionNames((currentRegions) =>
-      currentRegions.includes(regionName)
-        ? currentRegions.filter((name) => name !== regionName)
-        : [...currentRegions, regionName],
-    );
-  }
+  function confirmDeleteGimmick() {
+    if (editingGimmickIndex === null) return;
 
-  function toggleAllRegions() {
-    setSelectedRegionNames(
-      hasSelectedAllRegions ? [] : availableRegions,
-    );
+    confirmDeleteAction({
+      title: "Delete gimmick?",
+      message: "This will remove it from your saved custom gimmicks.",
+      onConfirm: deleteGimmick,
+    });
   }
 
   function selectGimmickCategory(category: string) {
@@ -193,11 +152,15 @@ export default function MyGimmicksScreen() {
     setCategorySummaryVisible(true);
   }
 
-  const hasSelectedAllRegions =
-    availableRegions.length > 0 &&
-    availableRegions.every((regionName) =>
-      selectedRegionNames.includes(regionName),
+  const filteredGimmicks = gimmicks.filter(({ name, category }) => {
+    const query = gimmickSearch.trim().toLowerCase();
+    if (!query) return true;
+
+    return (
+      name.toLowerCase().includes(query) ||
+      category.toLowerCase().includes(query)
     );
+  });
 
   return (
     <ThemedView style={styles.container}>
@@ -206,6 +169,9 @@ export default function MyGimmicksScreen() {
         <ThemedView style={styles.emptyState}>
           <ThemedText type="subtitle">
             Don&apos;t Have A Gimmick?
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
+            Save battle mechanics and connect them to the regions that use them.
           </ThemedText>
           <Pressable
             onPress={openCreateMenu}
@@ -219,52 +185,72 @@ export default function MyGimmicksScreen() {
       ) : (
         <View style={styles.gimmicksSection}>
           <ThemedView type="backgroundElement" style={styles.gimmicksArea}>
-            <View style={styles.gimmickList}>
-              {gimmicks.map((gimmick, index) => (
-                <View key={`${gimmick.name}-${index}`} style={styles.gimmickRow}>
-                  <View style={styles.gimmickDetails}>
-                    <View style={styles.gimmickHeading}>
-                      <ThemedText
-                        type="subtitle"
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.45}
-                        numberOfLines={1}
-                        style={styles.gimmickName}
-                      >
-                        {gimmick.name}
-                      </ThemedText>
-                      {gimmick.category ? (
-                        <ThemedText type="small" style={styles.categoryBadge}>
-                          {gimmick.category}
-                        </ThemedText>
-                      ) : null}
-                    </View>
-                    {gimmick.description ? (
-                      <ThemedText type="small" style={styles.description}>
-                        {gimmick.description}
-                      </ThemedText>
-                    ) : null}
-                    {gimmick.regionNames.length > 0 ? (
-                      <ThemedText type="small" style={styles.regionSummary}>
-                        Used in: {gimmick.regionNames.join(", ")}
-                      </ThemedText>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    accessibilityLabel={`Edit ${gimmick.name}`}
-                    accessibilityRole="button"
-                    onPress={() => openEditMenu(index)}
-                    style={({ pressed }) => pressed && styles.pressed}
-                  >
-                    <SymbolView
-                      name={{ ios: "pencil", android: "edit", web: "edit" }}
-                      size={20}
-                      tintColor={theme.text}
-                    />
-                  </Pressable>
-                </View>
-              ))}
+            <View style={styles.searchRow}>
+              <TextInput
+                autoCapitalize="none"
+                onChangeText={setGimmickSearch}
+                placeholder="Search gimmicks"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.searchInput}
+                value={gimmickSearch}
+              />
             </View>
+            {filteredGimmicks.length === 0 ? (
+              <ThemedText type="small" style={styles.noResultsText}>
+                No gimmicks match this search.
+              </ThemedText>
+            ) : (
+              <View style={styles.gimmickList}>
+                {filteredGimmicks.map((gimmick, index) => {
+                  const originalIndex = gimmicks.findIndex(
+                    (item) =>
+                      item.name === gimmick.name &&
+                      item.category === gimmick.category &&
+                      item.description === gimmick.description,
+                  );
+
+                  return (
+                    <View key={`${gimmick.name}-${index}`} style={styles.gimmickRow}>
+                      <View style={styles.gimmickDetails}>
+                        <View style={styles.gimmickHeading}>
+                          <ThemedText
+                            type="subtitle"
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.45}
+                            numberOfLines={1}
+                            style={styles.gimmickName}
+                          >
+                            {gimmick.name}
+                          </ThemedText>
+                          {gimmick.category ? (
+                            <ThemedText type="small" style={styles.categoryBadge}>
+                              {gimmick.category}
+                            </ThemedText>
+                          ) : null}
+                        </View>
+                        {gimmick.description ? (
+                          <ThemedText type="small" style={styles.description}>
+                            {gimmick.description}
+                          </ThemedText>
+                        ) : null}
+                      </View>
+                      <Pressable
+                        accessibilityLabel={`Edit ${gimmick.name}`}
+                        accessibilityRole="button"
+                        onPress={() => openEditMenu(originalIndex)}
+                        style={({ pressed }) => pressed && styles.pressed}
+                      >
+                        <SymbolView
+                          name={{ ios: "pencil", android: "edit", web: "edit" }}
+                          size={20}
+                          tintColor={theme.text}
+                        />
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </ThemedView>
           <Pressable
             accessibilityLabel="Create another gimmick"
@@ -358,45 +344,6 @@ export default function MyGimmicksScreen() {
               />
             </View>
 
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Use In Regions</ThemedText>
-              {availableRegions.length > 0 ? (
-                <>
-                  <Pressable
-                    onPress={toggleAllRegions}
-                    style={[
-                      styles.allRegionsButton,
-                      hasSelectedAllRegions && styles.selectedOption,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">
-                      {hasSelectedAllRegions
-                        ? "Clear All Regions"
-                        : "Add To All Regions"}
-                    </ThemedText>
-                  </Pressable>
-                  <View style={styles.regionOptions}>
-                    {availableRegions.map((regionName) => (
-                      <Pressable
-                        key={regionName}
-                        onPress={() => toggleRegion(regionName)}
-                        style={[
-                          styles.regionOption,
-                          selectedRegionNames.includes(regionName) &&
-                            styles.selectedOption,
-                        ]}
-                      >
-                        <ThemedText type="small">{regionName}</ThemedText>
-                      </Pressable>
-                    ))}
-                  </View>
-                </>
-              ) : (
-                <ThemedText type="small" style={styles.noRegionsText}>
-                  Create a region first to use this gimmick in it.
-                </ThemedText>
-              )}
-            </View>
 
             <Pressable
               onPress={saveGimmick}
@@ -412,7 +359,7 @@ export default function MyGimmicksScreen() {
 
             {editingGimmickIndex !== null ? (
               <Pressable
-                onPress={deleteGimmick}
+                onPress={confirmDeleteGimmick}
                 style={({ pressed }) => [
                   styles.deleteButton,
                   pressed && styles.pressed,
@@ -442,17 +389,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: 32,
+    paddingBottom: 24,
   },
   emptyState: {
     alignItems: "center",
     gap: 16,
     marginTop: 24,
   },
+  emptyDescription: {
+    maxWidth: 420,
+    textAlign: "center",
+    lineHeight: 22,
+  },
   createButton: {
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,
+    backgroundColor: "rgba(60, 135, 247, 0.88)",
   },
   gimmicksSection: {
     width: "100%",
@@ -464,16 +419,39 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 72,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(120, 140, 180, 0.18)",
+    shadowColor: "#000000",
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  searchRow: {
+    marginBottom: 18,
+  },
+  searchInput: {
+    minHeight: 44,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(120, 140, 180, 0.12)",
+    color: "#ffffff",
   },
   gimmickList: {
     gap: 20,
-    marginTop: 24,
+  },
+  noResultsText: {
+    opacity: 0.7,
+    marginTop: 8,
   },
   gimmickRow: {
     minHeight: 40,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 16,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(120, 140, 180, 0.08)",
   },
   gimmickDetails: {
     flex: 1,
@@ -527,8 +505,10 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     gap: 16,
-    padding: 32,
-    borderRadius: 16,
+    padding: 28,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(120, 140, 180, 0.2)",
   },
   menuTitle: {
     fontSize: 28,
