@@ -40,6 +40,16 @@ import {
   LiveShareSession,
   type LiveShareStatus,
 } from "@/utils/region-peer-share";
+import {
+  checkAuthStatus,
+  fetchCloudData,
+  getAuthToken,
+  loginUser,
+  logoutUser,
+  pushCloudData,
+  registerUser,
+  type User,
+} from "@/utils/account-sync";
 
 const APP_STORAGE_VERSION = "v2";
 const REGIONS_STORAGE_KEY = `pokemon-regions-${APP_STORAGE_VERSION}`;
@@ -378,6 +388,17 @@ export default function MyRegionsScreen() {
   const [guestCommentDraft, setGuestCommentDraft] = useState("");
   const [guestCommentSent, setGuestCommentSent] = useState(false);
   const [guestEditMessage, setGuestEditMessage] = useState("");
+
+  // Account & Cloud Sync State
+  const [accountModalVisible, setAccountModalVisible] = useState(false);
+  const [accountMode, setAccountMode] = useState<"login" | "register">("login");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authError, setAuthError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>("");
   const theme = useTheme();
 
   function stopLiveShare() {
@@ -785,6 +806,146 @@ export default function MyRegionsScreen() {
       window.localStorage.setItem(REGIONS_STORAGE_KEY, JSON.stringify(regions));
     }
   }, [hasLoadedRegions, regions]);
+
+  useEffect(() => {
+    checkAuthStatus().then((user) => {
+      setAuthUser(user);
+      if (user) {
+        void handleCloudSync("auto");
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && hasLoadedRegions && authUser) {
+      const timer = setTimeout(() => {
+        let customPkmn: any[] = [];
+        let gimmicksList: any[] = [];
+        try {
+          const storedP = window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY);
+          if (storedP) customPkmn = JSON.parse(storedP);
+          const storedG = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
+          if (storedG) gimmicksList = JSON.parse(storedG);
+        } catch {}
+        void pushCloudData({ regions, customPokemon: customPkmn, gimmicks: gimmicksList });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [hasLoadedRegions, regions, authUser]);
+
+  async function handleCloudSync(mode: "auto" | "pull" | "push" = "auto") {
+    if (!getAuthToken()) return;
+    setSyncStatus("Syncing with Cloudflare...");
+
+    if (mode === "push") {
+      let customPkmn: any[] = [];
+      let gimmicksList: any[] = [];
+      if (typeof window !== "undefined") {
+        try {
+          const storedP = window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY);
+          if (storedP) customPkmn = JSON.parse(storedP);
+          const storedG = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
+          if (storedG) gimmicksList = JSON.parse(storedG);
+        } catch {}
+      }
+      const res = await pushCloudData({ regions, customPokemon: customPkmn, gimmicks: gimmicksList });
+      if (res.success) {
+        setSyncStatus("Pushed to Cloudflare!");
+      } else {
+        setSyncStatus(`Sync error: ${res.error}`);
+      }
+      return;
+    }
+
+    const res = await fetchCloudData();
+    if (!res.success || !res.data) {
+      setSyncStatus(`Sync error: ${res.error || "Could not fetch cloud data"}`);
+      return;
+    }
+
+    const cloudRegions = res.data.regions || [];
+    const cloudCustomPokemon = res.data.customPokemon || [];
+    const cloudGimmicks = res.data.gimmicks || [];
+
+    if (mode === "pull" || (mode === "auto" && cloudRegions.length > 0 && regions.length === 0)) {
+      if (cloudRegions.length > 0) setRegions(cloudRegions);
+      if (typeof window !== "undefined") {
+        if (cloudCustomPokemon.length > 0) {
+          window.localStorage.setItem(CUSTOM_POKEMON_STORAGE_KEY, JSON.stringify(cloudCustomPokemon));
+        }
+        if (cloudGimmicks.length > 0) {
+          window.localStorage.setItem(GIMMICKS_STORAGE_KEY, JSON.stringify(cloudGimmicks));
+        }
+      }
+      setSyncStatus("Pulled from Cloudflare!");
+    } else if (mode === "auto") {
+      const mergedMap = new Map<string, Region>();
+      cloudRegions.forEach((r: Region) => { if (r.name) mergedMap.set(r.name, r); });
+      regions.forEach((r: Region) => { if (r.name) mergedMap.set(r.name, r); });
+      const mergedRegions = Array.from(mergedMap.values());
+      setRegions(mergedRegions);
+
+      let customPkmn = cloudCustomPokemon;
+      let gimmicksList = cloudGimmicks;
+      if (typeof window !== "undefined") {
+        try {
+          const storedP = window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY);
+          if (storedP) customPkmn = JSON.parse(storedP);
+          const storedG = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
+          if (storedG) gimmicksList = JSON.parse(storedG);
+        } catch {}
+      }
+      await pushCloudData({ regions: mergedRegions, customPokemon: customPkmn, gimmicks: gimmicksList });
+      setSyncStatus("Synced with Cloudflare!");
+    }
+  }
+
+  async function handleLogin() {
+    if (!authUsername.trim() || !authPassword) {
+      setAuthError("Please fill in all fields");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthSuccess("");
+    const res = await loginUser(authUsername.trim(), authPassword);
+    setAuthLoading(false);
+    if (res.success && res.user) {
+      setAuthUser(res.user);
+      setAuthSuccess(`Welcome back, ${res.user.username}!`);
+      setAuthPassword("");
+      void handleCloudSync("auto");
+    } else {
+      setAuthError(res.error || "Login failed");
+    }
+  }
+
+  async function handleRegister() {
+    if (!authUsername.trim() || !authPassword) {
+      setAuthError("Please fill in all fields");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthSuccess("");
+    const res = await registerUser(authUsername.trim(), authPassword);
+    setAuthLoading(false);
+    if (res.success && res.user) {
+      setAuthUser(res.user);
+      setAuthSuccess(`Account created! Welcome, ${res.user.username}!`);
+      setAuthPassword("");
+      void handleCloudSync("push");
+    } else {
+      setAuthError(res.error || "Registration failed");
+    }
+  }
+
+  async function handleLogout() {
+    await logoutUser();
+    setAuthUser(null);
+    setAuthSuccess("Logged out successfully.");
+    setSyncStatus("");
+  }
 
   const loadPokemonOptions = async () => {
     setPokemonLoading(true);
@@ -1947,6 +2108,27 @@ export default function MyRegionsScreen() {
           ) : null}
         </ThemedView>
       ) : null}
+
+      <View style={styles.topHeaderBar}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            setAuthError("");
+            setAuthSuccess("");
+            setAccountModalVisible(true);
+          }}
+          style={({ pressed }) => [
+            styles.accountBadgeButton,
+            authUser && styles.accountBadgeButtonActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <ThemedText type="smallBold">
+            {authUser ? `☁️ ${authUser.username}` : "☁️ Cloud Sync / Sign In"}
+          </ThemedText>
+        </Pressable>
+      </View>
+
       {regions.length === 0 ? (
         <ThemedView style={styles.emptyState}>
           <ThemedText type="subtitle">Don&apos;t Have A Region?</ThemedText>
@@ -2130,6 +2312,22 @@ export default function MyRegionsScreen() {
             ]}
           >
             <ThemedText type="smallBold">Export</ThemedText>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setAuthError("");
+              setAuthSuccess("");
+              setAccountModalVisible(true);
+            }}
+            style={({ pressed }) => [
+              styles.toolbarButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="smallBold">
+              {authUser ? `☁️ ${authUser.username}` : "Cloud Account"}
+            </ThemedText>
           </Pressable>
         </View>
       ) : null}
@@ -2328,6 +2526,158 @@ export default function MyRegionsScreen() {
                 setShareVisible(false);
                 stopLiveShare();
               }}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Close</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setAccountModalVisible(false)}
+        transparent
+        visible={accountModalVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.shareMenu}>
+            <ThemedText type="subtitle" style={styles.menuTitle}>
+              {authUser ? "Cloud Sync Account" : accountMode === "login" ? "Sign In" : "Create Account"}
+            </ThemedText>
+
+            {authUser ? (
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Signed in as: {authUser.username}</ThemedText>
+                {syncStatus ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {syncStatus}
+                  </ThemedText>
+                ) : null}
+
+                <Pressable
+                  onPress={() => void handleCloudSync("push")}
+                  style={({ pressed }) => [
+                    styles.createMenuButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Push Local Regions to Cloud</ThemedText>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => void handleCloudSync("pull")}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Pull Cloud Regions to Local</ThemedText>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => void handleLogout()}
+                  style={({ pressed }) => [
+                    styles.smallDeleteAction,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Sign Out</ThemedText>
+                </Pressable>
+              </View>
+            ) : (
+              <>
+                <View style={styles.shareModeOptions}>
+                  <Pressable
+                    onPress={() => {
+                      setAccountMode("login");
+                      setAuthError("");
+                      setAuthSuccess("");
+                    }}
+                    style={[
+                      styles.shareModeOption,
+                      accountMode === "login" && styles.selectedDropdown,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Sign In</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setAccountMode("register");
+                      setAuthError("");
+                      setAuthSuccess("");
+                    }}
+                    style={[
+                      styles.shareModeOption,
+                      accountMode === "register" && styles.selectedDropdown,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Register</ThemedText>
+                  </Pressable>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <ThemedText type="smallBold">Username</ThemedText>
+                  <TextInput
+                    autoCapitalize="none"
+                    onChangeText={setAuthUsername}
+                    placeholder="e.g. trainer_red"
+                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                    style={styles.input}
+                    value={authUsername}
+                  />
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <ThemedText type="smallBold">Password</ThemedText>
+                  <TextInput
+                    autoCapitalize="none"
+                    onChangeText={setAuthPassword}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                    secureTextEntry
+                    style={styles.input}
+                    value={authPassword}
+                  />
+                </View>
+
+                {authError ? (
+                  <ThemedText type="small" style={{ color: "#ff6b6b" }}>
+                    {authError}
+                  </ThemedText>
+                ) : null}
+
+                {authSuccess ? (
+                  <ThemedText type="small" style={{ color: "#51cf66" }}>
+                    {authSuccess}
+                  </ThemedText>
+                ) : null}
+
+                <Pressable
+                  disabled={authLoading}
+                  onPress={accountMode === "login" ? handleLogin : handleRegister}
+                  style={({ pressed }) => [
+                    styles.createMenuButton,
+                    authLoading && styles.disabledButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">
+                    {authLoading
+                      ? "Loading..."
+                      : accountMode === "login"
+                        ? "Sign In"
+                        : "Create Account"}
+                  </ThemedText>
+                </Pressable>
+              </>
+            )}
+
+            <Pressable
+              onPress={() => setAccountModalVisible(false)}
               style={({ pressed }) => [
                 styles.closeButton,
                 pressed && styles.pressed,
@@ -4158,6 +4508,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 10,
     backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  topHeaderBar: {
+    width: "100%",
+    maxWidth: 640,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: -8,
+  },
+  accountBadgeButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  accountBadgeButtonActive: {
+    backgroundColor: "rgba(60, 135, 247, 0.8)",
   },
   resetSavedDataButton: {
     minHeight: 46,

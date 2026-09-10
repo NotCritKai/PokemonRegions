@@ -34,6 +34,13 @@
 			}
 		]
 	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "pokemon-regions-db",
+			"database_id": "9c851002-7327-49b3-9f01-124d76aaa348"
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",
