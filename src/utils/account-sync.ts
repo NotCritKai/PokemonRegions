@@ -91,26 +91,6 @@ export async function loginUser(username: string, password: string): Promise<{ s
   }
 }
 
-export async function loginWithOAuthCode(provider: "google" | "github", code: string, redirectUri?: string): Promise<{ success: boolean; error?: string; user?: User }> {
-  try {
-    const url = `${API_BASE}/api/auth/${provider}/token`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, redirect_uri: redirectUri }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || `${provider} login failed` };
-    }
-    setAuthToken(data.token);
-    setAuthUser(data.user);
-    return { success: true, user: data.user };
-  } catch (err: any) {
-    return { success: false, error: err?.message || "Network error during OAuth login" };
-  }
-}
-
 export async function logoutUser(): Promise<void> {
   const token = getAuthToken();
   if (token) {

@@ -9,7 +9,6 @@ import {
   fetchCloudData,
   getAuthToken,
   loginUser,
-  loginWithOAuthCode,
   logoutUser,
   pushCloudData,
   registerUser,
@@ -32,35 +31,6 @@ export function AccountControl() {
   const [syncStatus, setSyncStatus] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get("code");
-      const state = urlParams.get("state");
-      const isGoogle = window.location.pathname.includes("/google") || urlParams.has("scope");
-      const isGithub = window.location.pathname.includes("/github") || (code && !urlParams.has("scope"));
-
-      if (code && (isGoogle || isGithub)) {
-        const provider = isGoogle ? "google" : "github";
-        setModalVisible(true);
-        setLoading(true);
-        setError("");
-        setSuccess(`Authenticating with ${provider === "google" ? "Google" : "GitHub"}...`);
-
-        const redirectUri = isGoogle ? `${window.location.origin}/api/auth/google/callback` : undefined;
-        loginWithOAuthCode(provider, code, redirectUri).then((res) => {
-          setLoading(false);
-          if (res.success && res.user) {
-            setUser(res.user);
-            setSuccess(`Signed in with ${provider === "google" ? "Google" : "GitHub"} as ${res.user.username}!`);
-            window.history.replaceState({}, document.title, window.location.pathname);
-            void handleSync("auto");
-          } else {
-            setError(res.error || "OAuth sign in failed");
-          }
-        });
-      }
-    }
-
     checkAuthStatus().then((u) => {
       setUser(u);
       if (u) {
@@ -173,35 +143,6 @@ export function AccountControl() {
     setUser(null);
     setSuccess("Logged out successfully.");
     setSyncStatus("");
-  }
-
-  function handleGoogleOAuth() {
-    if (typeof window === "undefined") return;
-    const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "";
-    if (!clientId) {
-      setError("Google OAuth Client ID is not configured yet in app.json/env.");
-      return;
-    }
-    const redirectUri = `${window.location.origin}/api/auth/google/callback`;
-    const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-      clientId
-    )}&redirect_uri=${encodeURIComponent(
-      redirectUri
-    )}&response_type=code&scope=openid%20profile%20email`;
-    window.open(googleUrl, "_self");
-  }
-
-  function handleGitHubOAuth() {
-    if (typeof window === "undefined") return;
-    const clientId = process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || "";
-    if (!clientId) {
-      setError("GitHub OAuth Client ID is not configured yet in app.json/env.");
-      return;
-    }
-    const githubUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
-      clientId
-    )}&scope=user:email`;
-    window.open(githubUrl, "_self");
   }
 
   return (
@@ -361,38 +302,6 @@ export function AccountControl() {
                         : "Create Account"}
                   </ThemedText>
                 </Pressable>
-
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <ThemedText type="small" themeColor="textSecondary">
-                    OR
-                  </ThemedText>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                <View style={styles.oauthContainer}>
-                  <Pressable
-                    onPress={handleGoogleOAuth}
-                    style={({ pressed }) => [
-                      styles.oauthButton,
-                      styles.googleButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">Sign in with Google</ThemedText>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={handleGitHubOAuth}
-                    style={({ pressed }) => [
-                      styles.oauthButton,
-                      styles.githubButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">Sign in with GitHub</ThemedText>
-                  </Pressable>
-                </View>
               </>
             )}
 
@@ -511,33 +420,5 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.5,
-  },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginVertical: 4,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.16)",
-  },
-  oauthContainer: {
-    gap: 8,
-  },
-  oauthButton: {
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-  },
-  googleButton: {
-    backgroundColor: "#4285F4",
-  },
-  githubButton: {
-    backgroundColor: "#24292e",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
   },
 });
