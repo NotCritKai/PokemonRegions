@@ -9,6 +9,7 @@ import {
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
+import { AccountControl } from "./account-control";
 import { ThemedText } from "./themed-text";
 import { ThemedView } from "./themed-view";
 
@@ -147,6 +148,7 @@ function SettingsControl({
 
   return (
     <View style={styles.settingsContainer}>
+      <AccountControl />
       <Pressable
         accessibilityLabel="Open settings"
         accessibilityRole="button"
@@ -342,6 +344,9 @@ const styles = StyleSheet.create({
     top: 16,
     right: 16,
     zIndex: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   settingsButton: {
     width: 34,

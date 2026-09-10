@@ -2,6 +2,8 @@ import { useState } from "react";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { AccountControl } from "./account-control";
+
 import { Colors } from "@/constants/theme";
 import { useAppAppearance, type AppearanceMode } from "@/hooks/use-app-appearance";
 import {
@@ -77,6 +79,7 @@ export default function AppTabs() {
       </NativeTabs>
 
       <View style={styles.settingsContainer}>
+        <AccountControl />
         <Pressable
           accessibilityLabel="Open settings"
           accessibilityRole="button"
@@ -201,6 +204,9 @@ const styles = StyleSheet.create({
     top: 12,
     right: 16,
     zIndex: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   settingsButton: {
     width: 32,
