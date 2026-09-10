@@ -13,6 +13,10 @@ const ROOM_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes of inactivity
 export interface Env {
 	SIGNALING_ROOM: DurableObjectNamespace;
 	DB: D1Database;
+	GOOGLE_CLIENT_ID?: string;
+	GOOGLE_CLIENT_SECRET?: string;
+	GITHUB_CLIENT_ID?: string;
+	GITHUB_CLIENT_SECRET?: string;
 }
 
 export class SignalingRoom {
@@ -350,6 +354,254 @@ export default {
 					headers: { "content-type": "application/json" },
 				})
 			);
+		}
+
+		// OAuth: Google Callback & Token Exchange
+		if (url.pathname === "/api/auth/google/token" && request.method === "POST") {
+			try {
+				const body = (await request.json()) as { code?: string; redirect_uri?: string };
+				const code = body.code;
+				const redirectUri = body.redirect_uri || `${url.origin}/api/auth/google/callback`;
+
+				if (!code) {
+					return withCors(
+						new Response(JSON.stringify({ error: "Missing authorization code" }), {
+							status: 400,
+							headers: { "content-type": "application/json" },
+						})
+					);
+				}
+
+				if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+					return withCors(
+						new Response(JSON.stringify({ error: "Google OAuth is not configured on backend" }), {
+							status: 501,
+							headers: { "content-type": "application/json" },
+						})
+					);
+				}
+
+				// Exchange code for token
+				const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+					method: "POST",
+					headers: { "Content-Type": "application/x-www-form-urlencoded" },
+					body: new URLSearchParams({
+						code,
+						client_id: env.GOOGLE_CLIENT_ID,
+						client_secret: env.GOOGLE_CLIENT_SECRET,
+						redirect_uri: redirectUri,
+						grant_type: "authorization_code",
+					}),
+				});
+
+				const tokenData = (await tokenRes.json()) as any;
+				if (!tokenRes.ok || !tokenData.access_token) {
+					return withCors(
+						new Response(
+							JSON.stringify({ error: tokenData.error_description || "Google token exchange failed" }),
+							{ status: 400, headers: { "content-type": "application/json" } }
+						)
+					);
+				}
+
+				// Fetch user profile from Google
+				const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+					headers: { Authorization: `Bearer ${tokenData.access_token}` },
+				});
+				const googleUser = (await userRes.json()) as any;
+				if (!googleUser || !googleUser.id) {
+					return withCors(
+						new Response(JSON.stringify({ error: "Failed to fetch Google profile" }), {
+							status: 400,
+							headers: { "content-type": "application/json" },
+						})
+					);
+				}
+
+				const googleId = String(googleUser.id);
+				let username = (googleUser.name || googleUser.email?.split("@")[0] || `google_${googleId.substring(0, 6)}`)
+					.replace(/[^a-zA-Z0-9_-]/g, "_")
+					.substring(0, 30);
+
+				// Find existing user by google_id
+				let user = await env.DB.prepare("SELECT id, username FROM users WHERE google_id = ?")
+					.bind(googleId)
+					.first<{ id: string; username: string }>();
+
+				const now = Date.now();
+				if (!user) {
+					// Check if username collision exists
+					const existingUsername = await env.DB.prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?)")
+						.bind(username)
+						.first();
+					if (existingUsername) {
+						username = `${username}_${Math.floor(Math.random() * 1000)}`;
+					}
+
+					const userId = crypto.randomUUID();
+					await env.DB.prepare(
+						"INSERT INTO users (id, username, google_id, created_at) VALUES (?, ?, ?, ?)"
+					)
+						.bind(userId, username, googleId, now)
+						.run();
+
+					await env.DB.prepare(
+						"INSERT INTO user_data (user_id, regions_json, custom_pokemon_json, gimmicks_json, updated_at) VALUES (?, '[]', '[]', '[]', ?)"
+					)
+						.bind(userId, now)
+						.run();
+
+					user = { id: userId, username };
+				}
+
+				const token = generateToken();
+				const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
+
+				await env.DB.prepare(
+					"INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)"
+				)
+					.bind(token, user.id, now, expiresAt)
+					.run();
+
+				return withCors(
+					new Response(
+						JSON.stringify({ success: true, token, user: { id: user.id, username: user.username } }),
+						{ headers: { "content-type": "application/json" } }
+					)
+				);
+			} catch (e: any) {
+				return withCors(
+					new Response(JSON.stringify({ error: e?.message || "Google OAuth failed" }), {
+						status: 500,
+						headers: { "content-type": "application/json" },
+					})
+				);
+			}
+		}
+
+		// OAuth: GitHub Callback & Token Exchange
+		if (url.pathname === "/api/auth/github/token" && request.method === "POST") {
+			try {
+				const body = (await request.json()) as { code?: string };
+				const code = body.code;
+
+				if (!code) {
+					return withCors(
+						new Response(JSON.stringify({ error: "Missing authorization code" }), {
+							status: 400,
+							headers: { "content-type": "application/json" },
+						})
+					);
+				}
+
+				if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+					return withCors(
+						new Response(JSON.stringify({ error: "GitHub OAuth is not configured on backend" }), {
+							status: 501,
+							headers: { "content-type": "application/json" },
+						})
+					);
+				}
+
+				// Exchange code for access token
+				const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json",
+					},
+					body: JSON.stringify({
+						client_id: env.GITHUB_CLIENT_ID,
+						client_secret: env.GITHUB_CLIENT_SECRET,
+						code,
+					}),
+				});
+
+				const tokenData = (await tokenRes.json()) as any;
+				if (!tokenRes.ok || !tokenData.access_token) {
+					return withCors(
+						new Response(
+							JSON.stringify({ error: tokenData.error_description || "GitHub token exchange failed" }),
+							{ status: 400, headers: { "content-type": "application/json" } }
+						)
+					);
+				}
+
+				// Fetch user profile from GitHub
+				const userRes = await fetch("https://api.github.com/user", {
+					headers: {
+						Authorization: `Bearer ${tokenData.access_token}`,
+						"User-Agent": "PokemonRegions-App",
+					},
+				});
+				const githubUser = (await userRes.json()) as any;
+				if (!githubUser || !githubUser.id) {
+					return withCors(
+						new Response(JSON.stringify({ error: "Failed to fetch GitHub profile" }), {
+							status: 400,
+							headers: { "content-type": "application/json" },
+						})
+					);
+				}
+
+				const githubId = String(githubUser.id);
+				let username = (githubUser.login || `github_${githubId.substring(0, 6)}`)
+					.replace(/[^a-zA-Z0-9_-]/g, "_")
+					.substring(0, 30);
+
+				// Find existing user by github_id
+				let user = await env.DB.prepare("SELECT id, username FROM users WHERE github_id = ?")
+					.bind(githubId)
+					.first<{ id: string; username: string }>();
+
+				const now = Date.now();
+				if (!user) {
+					const existingUsername = await env.DB.prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?)")
+						.bind(username)
+						.first();
+					if (existingUsername) {
+						username = `${username}_${Math.floor(Math.random() * 1000)}`;
+					}
+
+					const userId = crypto.randomUUID();
+					await env.DB.prepare(
+						"INSERT INTO users (id, username, github_id, created_at) VALUES (?, ?, ?, ?)"
+					)
+						.bind(userId, username, githubId, now)
+						.run();
+
+					await env.DB.prepare(
+						"INSERT INTO user_data (user_id, regions_json, custom_pokemon_json, gimmicks_json, updated_at) VALUES (?, '[]', '[]', '[]', ?)"
+					)
+						.bind(userId, now)
+						.run();
+
+					user = { id: userId, username };
+				}
+
+				const token = generateToken();
+				const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
+
+				await env.DB.prepare(
+					"INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)"
+				)
+					.bind(token, user.id, now, expiresAt)
+					.run();
+
+				return withCors(
+					new Response(
+						JSON.stringify({ success: true, token, user: { id: user.id, username: user.username } }),
+						{ headers: { "content-type": "application/json" } }
+					)
+				);
+			} catch (e: any) {
+				return withCors(
+					new Response(JSON.stringify({ error: e?.message || "GitHub OAuth failed" }), {
+						status: 500,
+						headers: { "content-type": "application/json" },
+					})
+				);
+			}
 		}
 
 		// Sync API
