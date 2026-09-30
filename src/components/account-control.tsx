@@ -38,7 +38,7 @@ export function AccountControl() {
 
   function loadLastCloudSave(userId: string) {
     try {
-      const value = Number(window.localStorage.getItem(lastCloudSaveKey(userId)));
+      const value = typeof window !== "undefined" ? Number(window.localStorage.getItem(lastCloudSaveKey(userId))) : 0;
       setLastCloudSave(Number.isFinite(value) && value > 0 ? value : null);
     } catch { setLastCloudSave(null); }
   }
@@ -155,7 +155,8 @@ export function AccountControl() {
           setSuccess("");
           try {
             setVersions(readVersions());
-            setBackupDue(Date.now() - Number(window.localStorage.getItem(BACKUP_TIME_KEY) ?? 0) > 7 * 86400000);
+            const lastBackup = typeof window !== "undefined" ? Number(window.localStorage.getItem(BACKUP_TIME_KEY) ?? 0) : 0;
+            setBackupDue(Date.now() - lastBackup > 7 * 86400000);
           } catch { setSyncStatus("Version history is unavailable. Export a backup before syncing."); }
           setModalVisible(true);
         }}

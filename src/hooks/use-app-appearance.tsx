@@ -1,92 +1,51 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Platform, useColorScheme as useSystemColorScheme } from "react-native";
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { useColorScheme as useNativeColorScheme } from "react-native";
 
-export type AppearanceMode = "auto" | "light" | "dark";
+const APPEARANCE_STORAGE_KEY = "app-appearance-mode";
 
-type AppearanceContextValue = {
-  mode: AppearanceMode;
+type AppearanceMode = "system" | "light" | "dark";
+
+interface AppearanceContextType {
+  appearance: AppearanceMode;
   colorScheme: "light" | "dark";
-  setMode: (mode: AppearanceMode) => void;
-};
-
-const APPEARANCE_STORAGE_KEY = "pokemon-regions-appearance";
-const AppearanceContext = createContext<AppearanceContextValue | null>(null);
-
-function getStoredMode(): AppearanceMode {
-  if (typeof window === "undefined") return "dark";
-
-  const stored = window.localStorage.getItem(APPEARANCE_STORAGE_KEY);
-  return stored === "light" || stored === "auto" || stored === "dark"
-    ? stored
-    : "dark";
+  updateAppearance: (mode: AppearanceMode) => void;
 }
 
+const AppearanceContext = createContext<AppearanceContextType>({
+  appearance: "system",
+  colorScheme: "light",
+  updateAppearance: () => {},
+});
+
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
-  const nativeSystemScheme = useSystemColorScheme();
-  const [mode, setModeState] = useState<AppearanceMode>("dark");
-  const [webSystemScheme, setWebSystemScheme] = useState<"light" | "dark">(
-    "dark",
-  );
+  const systemScheme = useNativeColorScheme() ?? "light";
+  const [appearance, setAppearance] = useState<AppearanceMode>("system");
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
-    setModeState(getStoredMode());
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem(APPEARANCE_STORAGE_KEY) as AppearanceMode | null;
+      if (stored) {
+        setAppearance(stored);
+      }
+    }
   }, []);
 
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const updateSystemScheme = () =>
-      setWebSystemScheme(mediaQuery.matches ? "dark" : "light");
-
-    updateSystemScheme();
-    mediaQuery.addEventListener?.("change", updateSystemScheme);
-    return () => mediaQuery.removeEventListener?.("change", updateSystemScheme);
-  }, []);
-
-  const setMode = (nextMode: AppearanceMode) => {
-    setModeState(nextMode);
+  const updateAppearance = (nextMode: AppearanceMode) => {
+    setAppearance(nextMode);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(APPEARANCE_STORAGE_KEY, nextMode);
     }
   };
 
-  const systemScheme =
-    Platform.OS === "web"
-      ? webSystemScheme
-      : nativeSystemScheme === "dark"
-        ? "dark"
-        : "light";
-  const colorScheme =
-    mode === "auto" ? (systemScheme === "dark" ? "dark" : "light") : mode;
-
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof document === "undefined") return;
-
-    const background = colorScheme === "dark" ? "#10131A" : "#F7F9FC";
-    document.documentElement.style.backgroundColor = background;
-    document.documentElement.style.colorScheme = colorScheme;
-    document.body.style.backgroundColor = background;
-    document.body.style.colorScheme = colorScheme;
-  }, [colorScheme]);
-
-  const value = useMemo(
-    () => ({ mode, colorScheme, setMode }),
-    [mode, colorScheme],
-  );
+  const colorScheme = appearance === "system" ? systemScheme : appearance;
 
   return (
-    <AppearanceContext.Provider value={value}>
+    <AppearanceContext.Provider value={{ appearance, colorScheme, updateAppearance }}>
       {children}
     </AppearanceContext.Provider>
   );
 }
 
 export function useAppAppearance() {
-  const value = useContext(AppearanceContext);
-  if (!value) {
-    throw new Error("useAppAppearance must be used inside AppearanceProvider");
-  }
-  return value;
+  return useContext(AppearanceContext);
 }

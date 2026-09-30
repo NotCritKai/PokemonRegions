@@ -13,7 +13,7 @@ export function subscribeToSaving(listener: () => void) {
 export function saveLocalData(key: string, value: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    window.localStorage.setItem(key, value);
+    if (typeof window !== "undefined") window.localStorage.setItem(key, value);
     pendingWrites.delete(key);
   } catch {
     pendingWrites.set(key, value);
@@ -27,6 +27,7 @@ export function retrySaving() {
 }
 
 export function readLocalData(key: string) {
+  if (typeof window === "undefined") return null;
   return pendingWrites.get(key) ?? window.localStorage.getItem(key);
 }
 

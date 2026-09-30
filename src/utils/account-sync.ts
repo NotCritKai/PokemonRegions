@@ -22,7 +22,7 @@ export interface CloudData {
 
 export function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  return typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
 }
 
 export function setAuthToken(token: string | null): void {
@@ -35,6 +35,7 @@ export function setAuthToken(token: string | null): void {
 }
 
 export function getAuthUser(): User | null {
+  if (typeof window === "undefined") return null;
   if (typeof window === "undefined") return null;
   const stored = window.localStorage.getItem(USER_KEY);
   if (!stored) return null;

@@ -7,6 +7,7 @@ export function areDeleteConfirmationsEnabled(): boolean {
     return true;
   }
 
+  if (typeof window === "undefined") return {};
   const stored = window.localStorage.getItem(DELETE_CONFIRMATIONS_KEY);
   return stored !== "false";
 }
