@@ -3,7 +3,6 @@ import { copyText } from "@/utils/clipboard";
 import { useResponsiveActions } from "@/hooks/use-responsive-actions";
 import { Image } from "expo-image";
 import { readLocalData, saveLocalData } from "@/utils/local-data";
-import { SymbolView } from "expo-symbols";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { createElement, useEffect, useRef, useState } from "react";
 import {
@@ -2427,13 +2426,9 @@ export default function MyRegionsScreen() {
                         accessibilityLabel={`Edit ${region.name}`}
                         accessibilityRole="button"
                         onPress={() => openEditMenu(index)}
-                        style={({ pressed }) => [styles.iconActionButton, pressed && styles.pressed]}
+                        style={({ pressed }) => [styles.contentButton, !canEditRegion(region) && { opacity: 0.45 }, pressed && styles.pressed]}
                       >
-                        <SymbolView
-                          name={{ ios: "pencil", android: "edit", web: "edit" }}
-                          size={20}
-                          tintColor={theme.text}
-                        />
+                        <ThemedText type="smallBold">Edit</ThemedText>
                       </Pressable>
                       <Pressable
                         accessibilityLabel={`Content for ${region.name}`}
