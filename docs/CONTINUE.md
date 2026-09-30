@@ -66,3 +66,6 @@ Fix is LOCAL and NOT DEPLOYED. Rebuild/redeploy frontend to Cloudflare Pages to 
 
 
 September 30 layout follow-up: moved homepage max-width from scroll viewport to its content so scrollbar reaches window edge; centered empty-region import/export row and added button padding; themed web Tabs root background and darkened header divider to remove white gap. Preserved prior hydration edits. TypeScript, full ESLint, web export passed. Browser screenshots verified homepage and centered region actions at 1280px, stacked actions at 390px; no console errors. Viewport reset. Not deployed.
+
+
+September 30 filter spacing: dedicated centered unfinished-filter style with 16px separation, wrapping centered text and selected-state background; theme-aware region search colors (light mode was unreadable); edit/share actions have centered 44px targets; homepage saving copy now distinguishes browser saving from supported account sync. Prior changes were committed before this turn (initial tree clean). Tested populated QA Filter Spacing fixture on isolated local port8094, light/dark desktop and 390px phone, filter toggle, no console errors. TypeScript/lint/export passed before final icon centering; final checks repeated. Fixture remains local. Changes not deployed.

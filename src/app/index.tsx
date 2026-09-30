@@ -33,9 +33,9 @@ export default function HomeScreen() {
           </ThemedText>
 
           <ThemedText type="small" style={styles.storageHint}>
-            Your data is saved in this browser only. Use the settings gear in the
-            top-right to reset everything whenever you want. Export your regions
-            before clearing browser site data so you have a backup.
+            Your work is saved in this browser. Sign in to sync supported data
+            with your account, and check Account for cloud save status. Export
+            a full backup from Settings before clearing browser site data.
           </ThemedText>
 
           <ThemedView type="backgroundElement" style={styles.stepContainer}>

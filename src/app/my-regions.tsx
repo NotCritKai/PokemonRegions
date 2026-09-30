@@ -2344,9 +2344,9 @@ export default function MyRegionsScreen() {
       ) : (
         <View style={styles.regionsSection}>
           <ThemedView type="backgroundElement" style={styles.regionsArea}>
-            <TextInput accessibilityLabel="Search regions and contents" placeholder="Search regions, routes, gyms, or Pokémon" value={regionSearch} onChangeText={setRegionSearch} style={styles.input} />
-            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: unfinishedOnly }} onPress={() => setUnfinishedOnly(value => !value)} style={styles.closeButton}>
-              <ThemedText>{unfinishedOnly ? "✓ " : ""}Show unfinished regions only</ThemedText>
+            <TextInput accessibilityLabel="Search regions and contents" placeholder="Search regions, routes, gyms, or Pokémon" value={regionSearch} onChangeText={setRegionSearch} placeholderTextColor={theme.textSecondary} style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSelected }]} />
+            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: unfinishedOnly }} onPress={() => setUnfinishedOnly(value => !value)} style={({ pressed }) => [styles.unfinishedFilter, unfinishedOnly && { backgroundColor: theme.backgroundSelected }, pressed && styles.pressed]}>
+              <ThemedText style={styles.unfinishedFilterText}>{unfinishedOnly ? "✓ " : ""}Show unfinished regions only</ThemedText>
             </Pressable>
             <View style={styles.regionList}>
               {regions.map((region, index) => ({region,index})).filter(({region}) => {
@@ -2427,7 +2427,7 @@ export default function MyRegionsScreen() {
                         accessibilityLabel={`Edit ${region.name}`}
                         accessibilityRole="button"
                         onPress={() => openEditMenu(index)}
-                        style={({ pressed }) => pressed && styles.pressed}
+                        style={({ pressed }) => [styles.iconActionButton, pressed && styles.pressed]}
                       >
                         <SymbolView
                           name={{ ios: "pencil", android: "edit", web: "edit" }}
@@ -4746,6 +4746,22 @@ const baseStyles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 36,
   },
+  unfinishedFilter: {
+    alignSelf: "center",
+    maxWidth: "100%",
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: "rgba(120, 140, 180, 0.16)",
+  },
+  unfinishedFilterText: {
+    textAlign: "center",
+    flexShrink: 1,
+  },
   regionList: {
     gap: 16,
     marginTop: 16,
@@ -4789,8 +4805,9 @@ const baseStyles = StyleSheet.create({
     gap: 12,
   },
   iconActionButton: {
-    width: 32,
-    height: 32,
+    alignSelf: "center",
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
