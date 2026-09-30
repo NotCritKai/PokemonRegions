@@ -29,6 +29,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
     setModeState(getStoredMode());
   }, []);
 

@@ -184,9 +184,9 @@ export default {
 		// Auth API
 		if (url.pathname === "/api/auth/register" && request.method === "POST") {
 			try {
-				const body = (await request.json()) as { username?: string; password?: string };
-				const username = body.username?.trim();
-				const password = body.password;
+				const body = await request.json().catch(() => null) as { username?: unknown; password?: unknown } | null;
+				const username = typeof body?.username === "string" ? body.username.trim() : "";
+				const password = typeof body?.password === "string" ? body.password : "";
 
 				if (!username || username.length < 3 || username.length > 30 || !/^[a-zA-Z0-9_-]+$/.test(username)) {
 					return withCors(
@@ -262,9 +262,9 @@ export default {
 
 		if (url.pathname === "/api/auth/login" && request.method === "POST") {
 			try {
-				const body = (await request.json()) as { username?: string; password?: string };
-				const username = body.username?.trim();
-				const password = body.password;
+				const body = await request.json().catch(() => null) as { username?: unknown; password?: unknown } | null;
+				const username = typeof body?.username === "string" ? body.username.trim() : "";
+				const password = typeof body?.password === "string" ? body.password : "";
 
 				if (!username || !password) {
 					return withCors(
@@ -638,7 +638,7 @@ export default {
 				new Response(
 					JSON.stringify({
 						success: true,
-						data: { regions, customPokemon, gimmicks, updatedAt },
+						data: { regions, customPokemon, gimmicks, updatedAt, syncProtocol: 2 },
 					}),
 					{ headers: { "content-type": "application/json" } }
 				)
@@ -657,28 +657,34 @@ export default {
 			}
 
 			try {
-				const body = (await request.json()) as {
-					regions?: any[];
-					customPokemon?: any[];
-					gimmicks?: any[];
-				};
+                const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+                if (!body || Array.isArray(body) || typeof body !== "object" ||
+                    ["regions", "customPokemon", "gimmicks"].some(key => key in body && !Array.isArray(body[key]))) {
+                    return withCors(Response.json({error: "Sync fields must be arrays."}, {status: 400}));
+                }
+
+                if (!Number.isSafeInteger(body.expectedUpdatedAt) || Number(body.expectedUpdatedAt) < 0) {
+                    return withCors(Response.json({error: "Refresh cloud data before saving.", conflict: true}, {status: 428}));
+                }
 
 				const regionsJson = JSON.stringify(body.regions ?? []);
 				const customPokemonJson = JSON.stringify(body.customPokemon ?? []);
 				const gimmicksJson = JSON.stringify(body.gimmicks ?? []);
-				const now = Date.now();
+				const now = Math.max(Date.now(), Number(body.expectedUpdatedAt) + 1);
 
-				await env.DB.prepare(
+				const saved = await env.DB.prepare(
 					`INSERT INTO user_data (user_id, regions_json, custom_pokemon_json, gimmicks_json, updated_at)
-					 VALUES (?, ?, ?, ?, ?)
+					 SELECT ?, ?, ?, ?, ? WHERE ? = 0 OR EXISTS (SELECT 1 FROM user_data WHERE user_id = ?)
 					 ON CONFLICT(user_id) DO UPDATE SET
-					   regions_json = excluded.regions_json,
-					   custom_pokemon_json = excluded.custom_pokemon_json,
-					   gimmicks_json = excluded.gimmicks_json,
-					   updated_at = excluded.updated_at`
+					   regions_json = CASE WHEN ? THEN excluded.regions_json ELSE user_data.regions_json END,
+					   custom_pokemon_json = CASE WHEN ? THEN excluded.custom_pokemon_json ELSE user_data.custom_pokemon_json END,
+					   gimmicks_json = CASE WHEN ? THEN excluded.gimmicks_json ELSE user_data.gimmicks_json END,
+					   updated_at = excluded.updated_at WHERE user_data.updated_at = ?`
 				)
-					.bind(user.id, regionsJson, customPokemonJson, gimmicksJson, now)
+					.bind(user.id, regionsJson, customPokemonJson, gimmicksJson, now, body.expectedUpdatedAt, user.id, Number("regions" in body), Number("customPokemon" in body), Number("gimmicks" in body), body.expectedUpdatedAt)
 					.run();
+
+                if (!saved.meta.changes) return withCors(Response.json({error: "Cloud data changed on another device. Review both copies before saving.", conflict: true}, {status: 409}));
 
 				return withCors(
 					new Response(

@@ -21,7 +21,7 @@ export type LiveShareStatus =
   | "error";
 
 export type LiveShareMessage =
-  | { type: "region"; region: unknown }
+  | { type: "region"; region: unknown; permission?: "view" | "edit" | "comment" }
   | { type: "comment"; text: string }
   | { type: "edit"; region: unknown };
 
@@ -71,6 +71,21 @@ function toSignalingWsUrl(baseUrl: string, roomCode: string) {
 }
 
 export class LiveShareSession {
+  private connectionTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private clearConnectionTimer() {
+    if (this.connectionTimer !== null) clearTimeout(this.connectionTimer);
+    this.connectionTimer = null;
+  }
+
+  private startConnectionTimer() {
+    this.clearConnectionTimer();
+    this.connectionTimer = setTimeout(() => {
+      this.close();
+      this.onStatus("error");
+    }, 30000);
+  }
+
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
   private channel: RTCDataChannel | null = null;
@@ -93,7 +108,9 @@ export class LiveShareSession {
   }
 
   connect() {
+    this.close();
     this.onStatus("connecting");
+    this.startConnectionTimer();
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.pc = pc;
@@ -102,7 +119,7 @@ export class LiveShareSession {
     this.ws = ws;
 
     const send = (payload: unknown) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+      if (this.ws === ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
     };
 
     pc.onicecandidate = (event) => {
@@ -110,6 +127,9 @@ export class LiveShareSession {
     };
 
     pc.onconnectionstatechange = () => {
+      if (this.pc !== pc) return;
+      if (pc.connectionState === "disconnected") { this.startConnectionTimer(); this.onStatus("connecting"); }
+      if (pc.connectionState === "connected" && this.channel?.readyState === "open") { this.clearConnectionTimer(); this.onStatus("connected"); }
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
         this.onStatus("error");
       }
@@ -117,12 +137,14 @@ export class LiveShareSession {
 
     const setupChannel = (channel: RTCDataChannel) => {
       this.channel = channel;
-      channel.onopen = () => this.onStatus("connected");
-      channel.onclose = () => this.onStatus("closed");
-      channel.onerror = () => this.onStatus("error");
+      channel.onopen = () => { if (this.pc === pc) { this.clearConnectionTimer(); this.onStatus("connected"); } };
+      channel.onclose = () => { if (this.pc === pc) this.onStatus("closed"); };
+      channel.onerror = () => { if (this.pc === pc) this.onStatus("error"); };
       channel.onmessage = (event) => {
         try {
-          this.onMessage(JSON.parse(event.data) as LiveShareMessage);
+          if (this.pc !== pc) return;
+          const message = JSON.parse(event.data);
+          if (message && typeof message === "object" && ["region", "comment", "edit"].includes(message.type)) this.onMessage(message as LiveShareMessage);
         } catch {
           // Ignore malformed messages instead of crashing the session.
         }
@@ -136,11 +158,15 @@ export class LiveShareSession {
     }
 
     ws.onopen = () => {
+      if (this.ws !== ws) return;
+      if (this.role === "host") this.clearConnectionTimer();
       this.onStatus("waiting-for-peer");
-      if (this.role === "guest") send({ type: "hello" });
+      send({ type: this.role === "guest" ? "hello" : "ready" });
     };
 
+    let creatingOffer = false;
     ws.onmessage = async (event) => {
+      if (this.ws !== ws) return;
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(event.data);
@@ -148,48 +174,69 @@ export class LiveShareSession {
         return;
       }
 
-      if (msg.type === "hello" && this.role === "host") {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        send({ type: "offer", offer });
-        return;
-      }
-
-      if (msg.type === "offer" && this.role === "guest") {
-        await pc.setRemoteDescription(
-          msg.offer as RTCSessionDescriptionInit,
-        );
-        await this.flushPendingCandidates();
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        send({ type: "answer", answer });
-        return;
-      }
-
-      if (msg.type === "answer" && this.role === "host") {
-        await pc.setRemoteDescription(
-          msg.answer as RTCSessionDescriptionInit,
-        );
-        await this.flushPendingCandidates();
-        return;
-      }
-
-      if (msg.type === "ice" && msg.candidate) {
-        const candidate = msg.candidate as RTCIceCandidateInit;
-        if (pc.remoteDescription) {
-          try {
-            await pc.addIceCandidate(candidate);
-          } catch {
-            // Ignore invalid/duplicate candidates.
-          }
-        } else {
-          this.pendingCandidates.push(candidate);
+      try {
+        if (msg.type === "ready" && this.role === "guest") {
+          if (pc.remoteDescription) this.connect();
+          else send({ type: "hello" });
+          return;
         }
+        if (msg.type === "hello" && this.role === "host") {
+          if (pc.remoteDescription || pc.connectionState === "failed" || pc.connectionState === "closed") {
+            this.connect();
+            return;
+          }
+          if (creatingOffer || pc.signalingState === "have-local-offer") return;
+          this.startConnectionTimer();
+          creatingOffer = true;
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            send({ type: "offer", offer });
+          } finally {
+            creatingOffer = false;
+          }
+          return;
+        }
+
+        if (msg.type === "offer" && this.role === "guest") {
+          await pc.setRemoteDescription(
+            msg.offer as RTCSessionDescriptionInit,
+          );
+          await this.flushPendingCandidates();
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          send({ type: "answer", answer });
+          return;
+        }
+
+        if (msg.type === "answer" && this.role === "host") {
+          await pc.setRemoteDescription(
+            msg.answer as RTCSessionDescriptionInit,
+          );
+          await this.flushPendingCandidates();
+          return;
+        }
+
+        if (msg.type === "ice" && msg.candidate) {
+          const candidate = msg.candidate as RTCIceCandidateInit;
+          if (pc.remoteDescription) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch {
+              // Ignore invalid/duplicate candidates.
+            }
+          } else {
+            this.pendingCandidates.push(candidate);
+          }
+        }
+      } catch {
+        if (this.ws === ws) this.onStatus("error");
       }
     };
 
-    ws.onerror = () => this.onStatus("error");
+    ws.onerror = () => { if (this.ws === ws) this.onStatus("error"); };
     ws.onclose = () => {
+      if (this.ws !== ws) return;
       if (this.channel?.readyState !== "open") this.onStatus("closed");
     };
   }
@@ -210,18 +257,28 @@ export class LiveShareSession {
 
   send(message: LiveShareMessage) {
     if (this.channel?.readyState === "open") {
-      this.channel.send(JSON.stringify(message));
-      return true;
+      try {
+        this.channel.send(JSON.stringify(message));
+        return true;
+      } catch {
+        this.onStatus("error");
+        return false;
+      }
     }
     return false;
   }
 
   close() {
-    this.channel?.close();
-    this.pc?.close();
-    this.ws?.close();
+    this.clearConnectionTimer();
+    const channel = this.channel;
+    const pc = this.pc;
+    const ws = this.ws;
     this.channel = null;
     this.pc = null;
     this.ws = null;
+    this.pendingCandidates = [];
+    channel?.close();
+    pc?.close();
+    ws?.close();
   }
 }

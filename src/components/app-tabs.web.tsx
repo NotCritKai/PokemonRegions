@@ -7,9 +7,10 @@ import {
     TabTriggerSlotProps,
 } from "expo-router/ui";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { AccountControl } from "./account-control";
+import { BackupRestore, downloadBackup } from "./backup-restore";
 import { ThemedText } from "./themed-text";
 import { ThemedView } from "./themed-view";
 
@@ -66,28 +67,31 @@ export default function AppTabs() {
           style={styles.backdrop}
         />
       ) : null}
-      <TabSlot style={styles.tabSlot} />
+      <TabSlot
+        style={[styles.tabSlot, compactNavigation && styles.compactTabSlot]}
+      />
       <TabList asChild>
         <CustomTabList compact={compactNavigation}>
           <TabTrigger name="home" href="/" asChild>
-            <TabButton>Home</TabButton>
+            <TabButton compact={compactNavigation}>Home</TabButton>
           </TabTrigger>
           <TabTrigger name="my-regions" href="/my-regions" asChild>
-            <TabButton>Regions</TabButton>
+            <TabButton compact={compactNavigation}>Regions</TabButton>
           </TabTrigger>
           <TabTrigger name="my-pokemon" href="/my-pokemon" asChild>
-            <TabButton>Pokemon</TabButton>
+            <TabButton compact={compactNavigation}>Pokemon</TabButton>
           </TabTrigger>
           <TabTrigger name="my-gimmicks" href="/my-gimmicks" asChild>
-            <TabButton>Gimmicks</TabButton>
+            <TabButton compact={compactNavigation}>Gimmicks</TabButton>
           </TabTrigger>
           <TabTrigger name="my-music" href="/my-music" asChild>
-            <TabButton>Music</TabButton>
+            <TabButton compact={compactNavigation}>Music</TabButton>
           </TabTrigger>
         </CustomTabList>
       </TabList>
       <SettingsControl
         appearanceMode={appearanceMode}
+        compact={compactNavigation}
         deleteConfirmationsEnabled={deleteConfirmationsEnabled}
         resetAllSavedData={resetAllSavedData}
         setAppearanceMode={setAppearanceMode}
@@ -103,6 +107,7 @@ export default function AppTabs() {
 
 type SettingsControlProps = {
   appearanceMode: AppearanceMode;
+  compact: boolean;
   deleteConfirmationsEnabled: boolean;
   resetAllSavedData: () => void;
   setAppearanceMode: (mode: AppearanceMode) => void;
@@ -115,6 +120,7 @@ type SettingsControlProps = {
 
 function SettingsControl({
   appearanceMode,
+  compact,
   deleteConfirmationsEnabled,
   resetAllSavedData,
   setAppearanceMode,
@@ -126,28 +132,11 @@ function SettingsControl({
 }: SettingsControlProps) {
   function exportAllData() {
     if (typeof window === "undefined" || typeof document === "undefined") return;
-    const storage: Record<string, string> = {};
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-      if (key) {
-        const value = window.localStorage.getItem(key);
-        if (value !== null) storage[key] = value;
-      }
-    }
-    const blob = new Blob(
-      [JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), storage }, null, 2)],
-      { type: "application/json" },
-    );
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "pokemon-regions-all-data.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBackup();
   }
 
   return (
-    <View style={styles.settingsContainer}>
+    <View style={[styles.settingsContainer, compact && styles.compactSettingsContainer]}>
       <AccountControl />
       <Pressable
         accessibilityLabel="Open settings"
@@ -236,6 +225,7 @@ function SettingsControl({
               <Pressable onPress={exportAllData} style={styles.menuButton}>
                 <ThemedText type="smallBold">Export All Data</ThemedText>
               </Pressable>
+              <BackupRestore buttonStyle={styles.menuButton} />
               <Pressable onPress={() => setSettingsOpen(false)} style={styles.menuButton}>
                 <ThemedText type="smallBold">Close</ThemedText>
               </Pressable>
@@ -249,18 +239,20 @@ function SettingsControl({
 
 export function TabButton({
   children,
+  compact,
   isFocused,
   ...props
-}: TabTriggerSlotProps) {
+}: TabTriggerSlotProps & { compact?: boolean }) {
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
         type={isFocused ? "backgroundSelected" : "backgroundElement"}
-        style={styles.tabButtonView}
+        style={[styles.tabButtonView, compact && styles.compactTabButtonView]}
       >
         <ThemedText
           type="small"
           themeColor={isFocused ? "text" : "textSecondary"}
+          style={compact ? styles.compactTabButtonText : undefined}
         >
           {children}
         </ThemedText>
@@ -284,11 +276,21 @@ export function CustomTabList({
         type="background"
         style={[styles.innerContainer, compact && styles.compactInnerContainer]}
       >
-        <ThemedText type="smallBold" style={styles.brandText}>
-          Pokemon Regions
-        </ThemedText>
+        {!compact ? (
+          <ThemedText type="smallBold" style={styles.brandText}>
+            Pokemon Regions
+          </ThemedText>
+        ) : null}
 
-        {props.children}
+        {compact ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.compactTabRow}
+          >
+            {props.children}
+          </ScrollView>
+        ) : props.children}
       </ThemedView>
     </View>
   );
@@ -312,6 +314,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 84,
   },
+  compactTabSlot: {
+    paddingTop: 128,
+  },
   innerContainer: {
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.five,
@@ -326,8 +331,14 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   compactInnerContainer: {
+    width: "100%",
+    paddingHorizontal: 0,
+  },
+  compactTabRow: {
+    flexGrow: 1,
+    justifyContent: "center",
+    gap: Spacing.two,
     paddingHorizontal: Spacing.two,
-    gap: Spacing.one,
   },
   brandText: {
     marginRight: 0,
@@ -347,6 +358,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  compactSettingsContainer: {
+    top: 82,
+    right: Spacing.two,
   },
   settingsButton: {
     width: 34,
@@ -423,5 +438,12 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
     borderRadius: Spacing.three,
+  },
+  compactTabButtonView: {
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  compactTabButtonText: {
+    fontSize: 13,
   },
 });

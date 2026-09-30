@@ -8,8 +8,17 @@ export function createRegionShareLink(
 ) {
   if (typeof window === "undefined") return "";
 
+  const shared = region && typeof region === "object"
+    ? { ...region } as Record<string, unknown>
+    : region;
+  if (shared && typeof shared === "object") {
+    for (const key of ["sharedLinkKey", "temporary", "liveRoomCode", "sharePermission", "sharedComments"]) {
+      delete (shared as Record<string, unknown>)[key];
+    }
+  }
+
   const parts = [
-    `sharedRegion=${encodeURIComponent(JSON.stringify(region))}`,
+    `sharedRegion=${encodeURIComponent(JSON.stringify(shared))}`,
     `permission=${encodeURIComponent(permission)}`,
   ];
   if (comment.trim()) parts.push(`comment=${encodeURIComponent(comment.trim())}`);
@@ -22,5 +31,15 @@ export function createCommentResponseLink(region: unknown, comment: string) {
 }
 
 export function decodeSharedRegion(value: string) {
-  return JSON.parse(decodeURIComponent(value)) as Record<string, unknown>;
+  // Router query parameters are already decoded; preserve literal percentages.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    parsed = JSON.parse(decodeURIComponent(value));
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Invalid shared region.");
+  }
+  return parsed as Record<string, unknown>;
 }

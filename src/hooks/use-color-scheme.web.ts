@@ -8,6 +8,7 @@ export function useColorScheme() {
   const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Keep the first browser render consistent with server output before using the device theme.
     setHasHydrated(true);
   }, []);
 

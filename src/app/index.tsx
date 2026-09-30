@@ -1,6 +1,5 @@
-import * as Device from "expo-device";
 import { Link } from "expo-router";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AnimatedIcon } from "@/components/animated-icon";
@@ -10,85 +9,72 @@ import { ThemedView } from "@/components/themed-view";
 import { WebBadge } from "@/components/web-badge";
 import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme";
 
-function getDevMenuHint() {
-  if (Platform.OS === "web") {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === "android" ? "cmd+m (or ctrl+m)" : "cmd+d";
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
-
 export default function HomeScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Pokemon Regions
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator
+          style={styles.scrollView}
+        >
+          <ThemedView style={styles.heroSection}>
+            <AnimatedIcon />
+            <ThemedText type="title" style={styles.title}>
+              Pokemon Regions
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
+              Build a region, track your team, and shape your own Pokémon world.
+            </ThemedText>
+          </ThemedView>
+
+          <ThemedText type="code" style={styles.code}>
+            Get Started
           </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
-            Build a region, track your team, and shape your own Pokémon world.
+
+          <ThemedText type="small" style={styles.storageHint}>
+            Your data is saved in this browser only. Use the settings gear in the
+            top-right to reset everything whenever you want. Export your regions
+            before clearing browser site data so you have a backup.
           </ThemedText>
-        </ThemedView>
 
-        <ThemedText type="code" style={styles.code}>
-          Get Started
-        </ThemedText>
+          <ThemedView type="backgroundElement" style={styles.stepContainer}>
+            <HintRow
+              title="Create A Region"
+              hint={
+                <Link href="/my-regions" asChild>
+                  <ThemedText type="code">Regions Tab</ThemedText>
+                </Link>
+              }
+            />
+            <HintRow
+              title="Create A Pokemon"
+              hint={
+                <Link href="/my-pokemon" asChild>
+                  <ThemedText type="code">Pokemon Tab</ThemedText>
+                </Link>
+              }
+            />
+            <HintRow
+              title="Create A Gimmick"
+              hint={
+                <Link href="/my-gimmicks" asChild>
+                  <ThemedText type="code">Gimmicks Tab</ThemedText>
+                </Link>
+              }
+            />
+            <HintRow
+              title="Add Music"
+              hint={
+                <Link href="/my-music" asChild>
+                  <ThemedText type="code">Music Tab</ThemedText>
+                </Link>
+              }
+            />
+          </ThemedView>
 
-        <ThemedText type="small" style={styles.storageHint}>
-          Your data is saved in this browser only. Use the settings gear in the
-          top-right to reset everything whenever you want. Export your regions
-          before clearing browser site data so you have a backup.
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Create A Region"
-            hint={
-              <Link href="/my-regions" asChild>
-                <ThemedText type="code">Regions Tab</ThemedText>
-              </Link>
-            }
-          />
-          <HintRow
-            title="Create A Pokemon"
-            hint={
-              <Link href="/my-pokemon" asChild>
-                <ThemedText type="code">Pokemon Tab</ThemedText>
-              </Link>
-            }
-          />
-          <HintRow
-            title="Create A Gimmick"
-            hint={
-              <Link href="/my-gimmicks" asChild>
-                <ThemedText type="code">Gimmicks Tab</ThemedText>
-              </Link>
-            }
-          />
-          <HintRow
-            title="Add Music"
-            hint={
-              <Link href="/my-music" asChild>
-                <ThemedText type="code">Music Tab</ThemedText>
-              </Link>
-            }
-          />
-        </ThemedView>
-
-        {Platform.OS === "web" && <WebBadge />}
+          {Platform.OS === "web" && <WebBadge />}
+        </ScrollView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -102,17 +88,25 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+    width: "100%",
+    maxWidth: MaxContentWidth,
+  },
+  scrollView: {
+    width: "100%",
+  },
+  scrollContent: {
     paddingHorizontal: Spacing.four,
     alignItems: "center",
     gap: Spacing.three,
     paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+    paddingTop: Spacing.three,
+    flexGrow: 1,
   },
   heroSection: {
     alignItems: "center",
-    justifyContent: "center",
-    flex: 1,
     paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.five,
+    paddingBottom: Spacing.two,
     gap: Spacing.three,
   },
   title: {

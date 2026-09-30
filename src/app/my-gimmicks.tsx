@@ -1,14 +1,17 @@
+import { useResponsiveActions } from "@/hooks/use-responsive-actions";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
+import { readLocalData, saveLocalData } from "@/utils/local-data";
 import { confirmDeleteAction } from "@/utils/delete-confirmation";
 import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
@@ -44,6 +47,7 @@ type Gimmick = {
 };
 
 export default function MyGimmicksScreen() {
+  const styles = useResponsiveActions(baseStyles, ["gimmickRow", "categoryOptions", "regionOptions"], ["gimmickDetails"]);
   const [gimmicks, setGimmicks] = useState<Gimmick[]>([]);
   const [hasLoadedGimmicks, setHasLoadedGimmicks] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -60,10 +64,11 @@ export default function MyGimmicksScreen() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const storedGimmicks = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
+    const storedGimmicks = readLocalData(GIMMICKS_STORAGE_KEY);
     if (storedGimmicks) {
       try {
         const savedGimmicks = JSON.parse(storedGimmicks) as Partial<Gimmick>[];
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
         setGimmicks(
           savedGimmicks.map((gimmick) => ({
             name: gimmick.name ?? "",
@@ -80,7 +85,7 @@ export default function MyGimmicksScreen() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoadedGimmicks) {
-      window.localStorage.setItem(
+      saveLocalData(
         GIMMICKS_STORAGE_KEY,
         JSON.stringify(gimmicks),
       );
@@ -164,6 +169,11 @@ export default function MyGimmicksScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.screenScrollContent}
+        showsVerticalScrollIndicator
+        style={styles.screenScroll}
+      >
       <ThemedText type="title">My Gimmicks</ThemedText>
       {gimmicks.length === 0 ? (
         <ThemedView style={styles.emptyState}>
@@ -265,6 +275,7 @@ export default function MyGimmicksScreen() {
           </Pressable>
         </View>
       )}
+      </ScrollView>
 
       <Modal
         animationType="fade"
@@ -273,6 +284,11 @@ export default function MyGimmicksScreen() {
         visible={menuVisible}
       >
         <View style={styles.modalOverlay}>
+          <ScrollView
+            contentContainerStyle={styles.modalScrollContent}
+            showsVerticalScrollIndicator
+            style={styles.modalScroll}
+          >
           <ThemedView type="backgroundElement" style={styles.menu}>
             <ThemedText type="subtitle" style={styles.menuTitle}>
               {editingGimmickIndex === null
@@ -379,19 +395,35 @@ export default function MyGimmicksScreen() {
               <ThemedText type="smallBold">Close</ThemedText>
             </Pressable>
           </ThemedView>
+          </ScrollView>
         </View>
       </Modal>
     </ThemedView>
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  screenScroll: {
+    width: "100%",
+  },
+  screenScrollContent: {
     alignItems: "center",
     justifyContent: "flex-start",
-    paddingTop: 32,
+    gap: 16,
+    paddingTop: 20,
     paddingBottom: 24,
+    paddingHorizontal: 12,
+  },
+  modalScroll: {
+    width: "100%",
+    maxHeight: "92%",
+  },
+  modalScrollContent: {
+    alignItems: "center",
+    paddingVertical: 12,
   },
   emptyState: {
     alignItems: "center",
@@ -416,8 +448,8 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   gimmicksArea: {
-    padding: 24,
-    paddingTop: 72,
+    padding: 16,
+    paddingTop: 60,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
@@ -438,7 +470,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   gimmickList: {
-    gap: 20,
+    gap: 16,
   },
   noResultsText: {
     opacity: 0.7,
@@ -460,6 +492,7 @@ const styles = StyleSheet.create({
   gimmickHeading: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 10,
   },
   gimmickName: {
@@ -505,7 +538,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     gap: 16,
-    padding: 28,
+    padding: 20,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.2)",

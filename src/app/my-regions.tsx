@@ -1,6 +1,10 @@
+import { readRecovery, saveRecovery, recoverRegion, type RecoveryEntry } from "@/utils/region-recovery";
+import { copyText } from "@/utils/clipboard";
+import { useResponsiveActions } from "@/hooks/use-responsive-actions";
 import { Image } from "expo-image";
+import { readLocalData, saveLocalData } from "@/utils/local-data";
 import { SymbolView } from "expo-symbols";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { createElement, useEffect, useRef, useState } from "react";
 import {
     Animated,
@@ -21,6 +25,7 @@ import {
 } from "@/utils/delete-confirmation";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { RegionChecklist, regionChecklist } from "@/components/region-checklist";
 import { useTheme } from "@/hooks/use-theme";
 import {
   getMusicEmbedUri,
@@ -69,6 +74,9 @@ type Region = {
   sharePermission?: RegionSharePermission;
   sharedComments?: string[];
   liveRoomCode?: string;
+  sharedLinkKey?: string;
+  temporary?: boolean;
+  recoveryId?: string;
 };
 type MusicEntry = {
   name: string;
@@ -85,6 +93,9 @@ type RoutePokemon = {
   percentage: string;
 };
 type RouteDetails = {
+  time?: string;
+  weather?: string;
+  progression?: string;
   terrain: string;
   difficulty: string;
   items: string;
@@ -175,7 +186,7 @@ const biomeMapThemes: Record<
   },
 };
 const biomes = ["Grassland", "Mountain", "Ocean", "Forest", "Desert", "Tundra"];
-const routeCounts = Array.from({ length: 39 }, (_, index) => String(index + 1));
+
 const gymCounts = Array.from({ length: 8 }, (_, index) => String(index + 1));
 const pokemonTypes = [
   "normal",
@@ -233,17 +244,18 @@ function getSuggestedGymCount(routeCount: number) {
 
 function ShareGlyph({ color }: { color: string }) {
   return (
-    <View style={styles.shareGlyph} accessible={false}>
-      <View style={[styles.shareLineTop, { backgroundColor: color }]} />
-      <View style={[styles.shareLineBottom, { backgroundColor: color }]} />
-      <View style={[styles.shareNode, styles.shareNodeLeft, { backgroundColor: color }]} />
-      <View style={[styles.shareNode, styles.shareNodeTop, { backgroundColor: color }]} />
-      <View style={[styles.shareNode, styles.shareNodeBottom, { backgroundColor: color }]} />
+    <View style={baseStyles.shareGlyph} accessible={false}>
+      <View style={[baseStyles.shareLineTop, { backgroundColor: color }]} />
+      <View style={[baseStyles.shareLineBottom, { backgroundColor: color }]} />
+      <View style={[baseStyles.shareNode, baseStyles.shareNodeLeft, { backgroundColor: color }]} />
+      <View style={[baseStyles.shareNode, baseStyles.shareNodeTop, { backgroundColor: color }]} />
+      <View style={[baseStyles.shareNode, baseStyles.shareNodeBottom, { backgroundColor: color }]} />
     </View>
   );
 }
 
 export default function MyRegionsScreen() {
+  const styles = useResponsiveActions(baseStyles, ["regionActions", "footerActions", "emptyImportExportActions", "shareModeOptions", "sharePermissionOptions", "importExportActions", "gymActions", "routeActionRow", "actionRow", "musicTypeOptions", "musicCard"], ["savedRegionName", "actionButton", "gymActionButton", "routeOptionButton", "secondaryAction", "musicDetails"]);
   const params = useLocalSearchParams<{
     sharedRegion?: string;
     permission?: string;
@@ -255,9 +267,25 @@ export default function MyRegionsScreen() {
   const [regionName, setRegionName] = useState("");
   const [rivalName, setRivalName] = useState("");
   const [regionType, setRegionType] = useState("");
+  const [creationTemplate, setCreationTemplate] = useState<number | "basic" | null>(null);
+  const [encounterFilter, setEncounterFilter] = useState("");
+  const [regionSearch, setRegionSearch] = useState("");
+  const [unfinishedOnly, setUnfinishedOnly] = useState(false);
   const [routeCount, setRouteCount] = useState("");
-  const [routeMenuVisible, setRouteMenuVisible] = useState(false);
+  const [customRouteCount, setCustomRouteCount] = useState("1");
+  const [customRoutesVisible, setCustomRoutesVisible] = useState(false);
+  const [routeLimitDraft, setRouteLimitDraft] = useState("");
+  const [routeCountError, setRouteCountError] = useState("");
   const [regions, setRegions] = useState<Region[]>([]);
+  const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntry<Region>[]>([]);
+  const [recoveryExpanded, setRecoveryExpanded] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [lastDeletedId, setLastDeletedId] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
+    try { setRecoveryEntries(readRecovery<Region>()); }
+    catch (error) { setRecoveryMessage(error instanceof Error ? error.message : "Could not read recovery data."); }
+  }, []);
   const [hasLoadedRegions, setHasLoadedRegions] = useState(false);
   const [editingRegionIndex, setEditingRegionIndex] = useState<number | null>(
     null,
@@ -283,7 +311,7 @@ export default function MyRegionsScreen() {
   const [newGimmickName, setNewGimmickName] = useState("");
   const [newGimmickCategory, setNewGimmickCategory] = useState("");
   const [newGimmickDescription, setNewGimmickDescription] = useState("");
-  const contentReveal = useRef(new Animated.Value(1)).current;
+  const [contentReveal] = useState(() => new Animated.Value(1));
   const [mapPositions, setMapPositions] = useState<Record<string, MapPosition>>(
     {},
   );
@@ -355,6 +383,9 @@ export default function MyRegionsScreen() {
   const [exportText, setExportText] = useState("");
   const [importError, setImportError] = useState("");
   const [shareVisible, setShareVisible] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [manualShareLink, setManualShareLink] = useState("");
+  const [commentResponseLink, setCommentResponseLink] = useState("");
   const [shareRegionIndex, setShareRegionIndex] = useState<number | null>(null);
   const [sharePermission, setSharePermission] =
     useState<RegionSharePermission>("view");
@@ -379,8 +410,30 @@ export default function MyRegionsScreen() {
   const [guestCommentSent, setGuestCommentSent] = useState(false);
   const [guestEditMessage, setGuestEditMessage] = useState("");
   const theme = useTheme();
+  const router = useRouter();
+  const openedSharedLink = useRef<string | null>(null);
+
+  const regionsRef = useRef(regions);
+  const liveHostRef = useRef<{ index: number; permission: RegionSharePermission } | null>(null);
+  useEffect(() => {
+    regionsRef.current = regions;
+    const host = liveHostRef.current;
+    if (host && regions[host.index]) {
+      liveSessionRef.current?.send({ type: "region", region: regions[host.index], permission: host.permission });
+    }
+  }, [regions]);
+
+  function canEditRegion(region: Region | null | undefined) {
+    return Boolean(region && (!region.sharePermission || region.sharePermission === "edit"));
+  }
+
+  function canEditContent() {
+    return contentRegionIndex !== null && canEditRegion(regions[contentRegionIndex]);
+  }
 
   function stopLiveShare() {
+    setLiveGuestPermission(null);
+    liveHostRef.current = null;
     liveSessionRef.current?.close();
     liveSessionRef.current = null;
     setLiveShareStatus("idle");
@@ -389,9 +442,11 @@ export default function MyRegionsScreen() {
   }
 
   function startLiveShare() {
-    if (shareRegionIndex === null || !isLiveShareSupported()) return;
+    if (shareRegionIndex === null || !canEditRegion(regions[shareRegionIndex]) || !isLiveShareSupported()) return;
+    stopLiveShare();
     const regionIndex = shareRegionIndex;
     const roomCode = generateRoomCode();
+    liveHostRef.current = { index: regionIndex, permission: sharePermission };
     setLiveShareLink(buildLiveShareLink(roomCode, sharePermission));
     setLiveActivity([]);
     setLiveShareStatus("connecting");
@@ -400,7 +455,7 @@ export default function MyRegionsScreen() {
     session.onStatus = (status) => {
       setLiveShareStatus(status);
       if (status === "connected") {
-        session.send({ type: "region", region: regions[regionIndex] });
+        session.send({ type: "region", region: regionsRef.current[regionIndex], permission: sharePermission });
         setLiveActivity((prev) => [...prev, "Connected. Region sent."]);
       }
       if (status === "closed" || status === "error") {
@@ -411,15 +466,17 @@ export default function MyRegionsScreen() {
       }
     };
     session.onMessage = (message) => {
-      if (message.type === "comment") {
+      if (message.type === "comment" && sharePermission === "comment" && typeof message.text === "string") {
         setLiveActivity((prev) => [...prev, `Comment: ${message.text}`]);
-      } else if (message.type === "edit") {
+      } else if (message.type === "edit" && sharePermission === "edit") {
+        if (!message.region || typeof message.region !== "object" || Array.isArray(message.region)) return;
+        const [edited] = normalizeImportedRegions([message.region]);
         setRegions((current) => {
           if (!current[regionIndex]) return current;
           const next = [...current];
           next[regionIndex] = {
-            ...(message.region as Region),
-            liveRoomCode: undefined,
+            ...current[regionIndex],
+            ...edited,
           };
           return next;
         });
@@ -435,16 +492,21 @@ export default function MyRegionsScreen() {
 
   async function copyLiveShareLink() {
     if (!liveShareLink) return;
-    if (Platform.OS === "web" && typeof navigator !== "undefined") {
-      await navigator.clipboard?.writeText(liveShareLink);
+    if (Platform.OS === "web") {
+      const copied = await copyText(liveShareLink);
+      setCopyStatus(copied ? "Live share link copied." : "Copy failed. Select and copy the link below.");
       return;
     }
-    await Share.share({ message: liveShareLink, title: "Live Share Link" });
+    try {
+      await Share.share({ message: liveShareLink, title: "Live Share Link" });
+    } catch {
+      setCopyStatus("Sharing failed. Select and copy the link below.");
+    }
   }
 
   function sendGuestComment() {
     const text = guestCommentDraft.trim();
-    if (!text || !liveSessionRef.current) return;
+    if (!text || liveGuestPermission !== "comment" || !liveSessionRef.current) return;
     const sent = liveSessionRef.current.send({ type: "comment", text });
     if (sent) {
       setGuestCommentDraft("");
@@ -454,7 +516,7 @@ export default function MyRegionsScreen() {
   }
 
   function sendGuestEdits(region: Region) {
-    if (!liveSessionRef.current) return;
+    if (liveGuestPermission !== "edit" || !canEditRegion(region) || !liveSessionRef.current) return;
     const { liveRoomCode: _omit, ...rest } = region;
     const sent = liveSessionRef.current.send({ type: "edit", region: rest });
     setGuestEditMessage(
@@ -473,7 +535,28 @@ export default function MyRegionsScreen() {
     const encodedRegion = Array.isArray(params.sharedRegion)
       ? params.sharedRegion[0]
       : params.sharedRegion;
-    if (!encodedRegion || !hasLoadedRegions) return;
+    if (!encodedRegion) {
+      openedSharedLink.current = null;
+      return;
+    }
+    if (!hasLoadedRegions) return;
+    const linkKey = `${params.permission ?? "view"}:${encodedRegion}`;
+    if (openedSharedLink.current === linkKey) return;
+    openedSharedLink.current = linkKey;
+    const existingIndex = regions.findIndex(
+      (region) => region.sharedLinkKey === linkKey,
+    );
+    if (existingIndex >= 0) {
+      const existing = regions[existingIndex];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize the selected preview once per incoming share link; openedSharedLink guards repeats.
+      setContentRegionIndex(existingIndex);
+      setMapPositions(existing.mapPositions);
+      mapPositionsRef.current = existing.mapPositions;
+      setSelectedGimmicks(existing.gimmicks);
+      setMusicEntries(existing.music);
+      setContentMenuVisible(true);
+      return;
+    }
 
     try {
       const shared = decodeSharedRegion(encodedRegion);
@@ -507,12 +590,14 @@ export default function MyRegionsScreen() {
         music: Array.isArray(shared.music) ? shared.music : [],
         sharePermission: permission,
         sharedComments: [],
+        sharedLinkKey: linkKey,
+        temporary: true,
       } satisfies Region;
       setRegions((currentRegions) => [...currentRegions, importedRegion]);
     } catch {
       setImportError("This shared region link is invalid or incomplete.");
     }
-  }, [hasLoadedRegions, params.permission, params.sharedRegion]);
+  }, [hasLoadedRegions, params.permission, params.sharedRegion, regions]);
 
   useEffect(() => {
     const encodedRegion = Array.isArray(params.sharedRegion)
@@ -520,6 +605,7 @@ export default function MyRegionsScreen() {
       : params.sharedRegion;
     if (!encodedRegion) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize comment controls when the external share URL changes.
     setIsCommentResponse(params.commentResponse === "1");
     const permission = params.permission;
     if (
@@ -556,6 +642,9 @@ export default function MyRegionsScreen() {
     session.onStatus = setLiveShareStatus;
     session.onMessage = (message) => {
       if (message.type !== "region") return;
+      if (!message.region || typeof message.region !== "object" || Array.isArray(message.region)) return;
+      const grantedPermission = message.permission === "edit" || message.permission === "comment" ? message.permission : "view";
+      setLiveGuestPermission(grantedPermission);
       const shared = message.region as Record<string, unknown>;
       const importedRegion = {
         name: String(shared.name ?? "Shared Region"),
@@ -581,9 +670,10 @@ export default function MyRegionsScreen() {
         mapPositions: (shared.mapPositions as Record<string, MapPosition>) ?? {},
         gimmicks: Array.isArray(shared.gimmicks) ? shared.gimmicks : [],
         music: Array.isArray(shared.music) ? shared.music : [],
-        sharePermission: permission,
+        sharePermission: grantedPermission,
         sharedComments: [],
         liveRoomCode: roomCode,
+        temporary: true,
       } satisfies Region;
       setRegions((current) => {
         const existingIndex = current.findIndex(
@@ -591,7 +681,10 @@ export default function MyRegionsScreen() {
         );
         if (existingIndex >= 0) {
           const next = [...current];
-          next[existingIndex] = importedRegion;
+          next[existingIndex] = {
+            ...importedRegion,
+            temporary: current[existingIndex].temporary,
+          };
           return next;
         }
         return [...current, importedRegion];
@@ -599,6 +692,12 @@ export default function MyRegionsScreen() {
     };
     liveSessionRef.current = session;
     session.connect();
+    return () => {
+      session.close();
+      if (liveSessionRef.current === session) liveSessionRef.current = null;
+      setLiveGuestPermission(null);
+      setLiveShareStatus("idle");
+    };
   }, [hasLoadedRegions, params.live, params.permission]);
 
   useEffect(() => {
@@ -610,12 +709,14 @@ export default function MyRegionsScreen() {
       }
     });
 
-    const storedRegions = window.localStorage.getItem(REGIONS_STORAGE_KEY);
+    const storedRegions = readLocalData(REGIONS_STORAGE_KEY);
     if (storedRegions) {
       try {
         const savedRegions = JSON.parse(storedRegions) as Partial<Region>[];
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
         setRegions(
           savedRegions.map((region) => ({
+            recoveryId: region.recoveryId,
             name: region.name ?? "",
             rivalName: region.rivalName ?? "",
             type: region.type ?? "",
@@ -638,6 +739,7 @@ export default function MyRegionsScreen() {
               ? region.sharedComments
               : [],
             liveRoomCode: region.liveRoomCode,
+            sharedLinkKey: region.sharedLinkKey,
           })),
         );
       } catch {
@@ -649,7 +751,7 @@ export default function MyRegionsScreen() {
 
   function loadGimmicks() {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
+    const stored = readLocalData(GIMMICKS_STORAGE_KEY);
     if (!stored) {
       setAvailableGimmicks([]);
       return;
@@ -676,6 +778,8 @@ export default function MyRegionsScreen() {
   }
 
   function toggleGimmick(name: string) {
+    if (!canEditContent()) return;
+    if (selectedGimmicks.includes(name) && !saveRecoverySnapshot("Before gimmick removal")) return;
     const nextSelection = selectedGimmicks.includes(name)
       ? selectedGimmicks.filter((gimmickName) => gimmickName !== name)
       : [...selectedGimmicks, name];
@@ -684,6 +788,7 @@ export default function MyRegionsScreen() {
   }
 
   function openGimmickCreate() {
+    if (!canEditContent()) return;
     setNewGimmickName("");
     setNewGimmickCategory("");
     setNewGimmickDescription("");
@@ -692,6 +797,7 @@ export default function MyRegionsScreen() {
   }
 
   function saveNewGimmick() {
+    if (!canEditContent()) return;
     const name = newGimmickName.trim();
     if (!name || typeof window === "undefined") return;
     const gimmick = {
@@ -700,7 +806,7 @@ export default function MyRegionsScreen() {
       description: newGimmickDescription.trim(),
     };
     const next = [...availableGimmicks.filter((item) => item.name !== name), gimmick];
-    window.localStorage.setItem(GIMMICKS_STORAGE_KEY, JSON.stringify(next));
+    saveLocalData(GIMMICKS_STORAGE_KEY, JSON.stringify(next));
     setAvailableGimmicks(next);
     const nextSelection = selectedGimmicks.includes(name)
       ? selectedGimmicks
@@ -713,10 +819,11 @@ export default function MyRegionsScreen() {
   }
 
   function saveRegionGimmicks(nextGimmicks = selectedGimmicks) {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null) return;
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex
+        index === contentRegionIndex && canEditRegion(region)
           ? { ...region, gimmicks: nextGimmicks }
           : region,
       ),
@@ -724,16 +831,18 @@ export default function MyRegionsScreen() {
   }
 
   function saveMusic(nextMusic: MusicEntry[]) {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null) return;
     setMusicEntries(nextMusic);
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex ? { ...region, music: nextMusic } : region,
+        index === contentRegionIndex && canEditRegion(region) ? { ...region, music: nextMusic } : region,
       ),
     );
   }
 
   function openMusicEditor() {
+    if (!canEditContent()) return;
     setMusicName("");
     setMusicUri("");
     setMusicKind("sheet");
@@ -742,6 +851,7 @@ export default function MyRegionsScreen() {
   }
 
   function chooseMusicFile() {
+    if (!canEditContent()) return;
     if (typeof document === "undefined") return;
     const input = document.createElement("input");
     input.type = "file";
@@ -764,6 +874,7 @@ export default function MyRegionsScreen() {
   }
 
   function saveMusicEntry() {
+    if (!canEditContent()) return;
     const name = musicName.trim();
     const uri = normalizeMusicUri(musicUri);
     if (!name || !uri) return;
@@ -777,12 +888,17 @@ export default function MyRegionsScreen() {
   }
 
   function removeMusicEntry(index: number) {
+    if (!canEditContent()) return;
+    if (!saveRecoverySnapshot("Before music deletion")) return;
     saveMusic(musicEntries.filter((_, entryIndex) => entryIndex !== index));
   }
 
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoadedRegions) {
-      window.localStorage.setItem(REGIONS_STORAGE_KEY, JSON.stringify(regions));
+      saveLocalData(
+        REGIONS_STORAGE_KEY,
+        JSON.stringify(regions.filter((region) => !region.temporary)),
+      );
     }
   }, [hasLoadedRegions, regions]);
 
@@ -843,28 +959,77 @@ export default function MyRegionsScreen() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Start the initial asynchronous catalog load and expose its loading state.
     void loadPokemonOptions();
   }, []);
 
   function openCreateMenu() {
+    setCreationTemplate(null);
     setRegionName("");
     setRivalName("");
     setRegionType("");
     setRouteCount("");
-    setRouteMenuVisible(false);
+    setRouteCountError("");
     setEditingRegionIndex(null);
     setMenuVisible(true);
   }
 
   function openEditMenu(index: number) {
+    if (!canEditRegion(regions[index])) return;
     const region = regions[index];
     setRegionName(region.name);
     setRivalName(region.rivalName);
     setRegionType(region.type);
     setRouteCount(region.routes);
-    setRouteMenuVisible(false);
+    setRouteCountError("");
     setEditingRegionIndex(index);
     setMenuVisible(true);
+  }
+
+  function duplicateRegion(index: number) {
+    setRegions((currentRegions) => {
+      const original = currentRegions[index];
+      if (!original || original.sharePermission || original.liveRoomCode) {
+        return currentRegions;
+      }
+
+      const baseName = `${original.name} (Copy)`;
+      let copyName = baseName;
+      let suffix = 2;
+      const existingNames = new Set(
+        currentRegions.map((region) => region.name.toLowerCase()),
+      );
+      while (existingNames.has(copyName.toLowerCase())) {
+        copyName = `${original.name} (Copy ${suffix++})`;
+      }
+
+      // Region content is JSON data; clone nested teams and map positions so
+      // changes to either region cannot alter the other region's content.
+      const copy = JSON.parse(JSON.stringify(original)) as Region;
+      copy.name = copyName;
+      copy.sharedComments = [];
+      return [...currentRegions, copy];
+    });
+  }
+
+  function acceptSharedRegion(index: number) {
+    setRegions((current) => current.map((region, regionIndex) =>
+      regionIndex === index ? { ...region, temporary: false } : region,
+    ));
+  }
+
+  function dismissSharedRegion(index: number) {
+    stopLiveShare();
+    setRegions((current) => current.filter((_, regionIndex) => regionIndex !== index));
+    setContentMenuVisible(false);
+    setContentRegionIndex(null);
+    setSharedPermission(null);
+    setSharedComment("");
+    if (regions[index]?.liveRoomCode) {
+      stopLiveShare();
+      setLiveGuestPermission(null);
+    }
+    router.replace("/my-regions");
   }
 
   function openContentMenu(index: number) {
@@ -872,6 +1037,7 @@ export default function MyRegionsScreen() {
     const positions = regions[index]?.mapPositions ?? {};
     setMapPositions(positions);
     mapPositionsRef.current = positions;
+    setEncounterFilter("");
     setRoutesExpanded(false);
     setGymsExpanded(false);
     setEliteFourExpanded(false);
@@ -945,35 +1111,87 @@ export default function MyRegionsScreen() {
     };
   }
 
-  function addRoute() {
+  function validateRouteCount(value: string, minimum: number) {
+    const count = Number(value);
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(count) || count < Math.max(1, minimum) || count > 999) {
+      setRouteCountError(`Enter a whole number from ${Math.max(1, minimum)} to 999. Existing routes are never removed by changing the limit.`);
+      return false;
+    }
+    setRouteCountError("");
+    return true;
+  }
+
+  function updateRouteLimit() {
+    if (!canEditContent() || contentRegionIndex === null) return;
+    if (!validateRouteCount(routeLimitDraft, regions[contentRegionIndex].routeNames.length)) return;
+    setRegions(current => current.map((region, index) => index === contentRegionIndex && canEditRegion(region)
+      ? { ...region, routes: String(Number(routeLimitDraft)) } : region));
+  }
+
+  function addRoute(amount?: number) {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
 
         const routeNames = region.routeNames ?? [];
         const routeLimit = Number(region.routes);
-        if (!routeLimit || routeNames.length >= routeLimit) return region;
+        if (!Number.isSafeInteger(routeLimit) || routeLimit < 1 || routeLimit > 999 || routeNames.length >= routeLimit) return region;
+        const target = amount === undefined ? routeLimit : Math.min(routeLimit, routeNames.length + amount);
+        if (!Number.isSafeInteger(target) || target <= routeNames.length) return region;
 
-        return {
-          ...region,
-          routeNames: Array.from(
-            { length: routeLimit },
-            (_, routeIndex) =>
-              routeNames[routeIndex] ?? `Route ${routeIndex + 1}`,
-          ),
-        };
+        const nextNames = [...routeNames];
+        for (let number = 1; nextNames.length < target; number += 1) {
+          const name = `Route ${number}`;
+          if (!nextNames.includes(name)) nextNames.push(name);
+        }
+        return { ...region, routeNames: nextNames };
       }),
     );
   }
 
+  function organizeContent(kind: "route" | "gym", source: number, action: "duplicate" | "up" | "down") {
+    if (!canEditContent() || contentRegionIndex === null) return;
+    setRegions(current => current.map((region, index) => {
+      if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+      const names = [...(kind === "route" ? region.routeNames : region.gyms)];
+      if (!names[source]) return region;
+      const details = [...region.gymDetails];
+      const teams = [...region.gymPokemon];
+      if (action === "duplicate") {
+        if (names.length >= (kind === "route" ? Number(region.routes) : 8)) return region;
+        let suffix = 2;
+        let name = `${names[source]} (Copy)`;
+        while (names.includes(name)) name = `${names[source]} (Copy ${suffix++})`;
+        names.push(name);
+        if (kind === "route") return { ...region, routeNames: names,
+          routeDetails: { ...region.routeDetails, [name]: { ...region.routeDetails[names[source]] } },
+          routePokemon: { ...region.routePokemon, [name]: (region.routePokemon[names[source]] ?? []).map(entry => ({ ...entry })) } };
+        details.push({ ...region.gymDetails[source] });
+        teams.push((region.gymPokemon[source] ?? []).map(entry => ({ ...entry, moves: [...entry.moves] })));
+      } else {
+        const target = source + (action === "up" ? -1 : 1);
+        if (target < 0 || target >= names.length) return region;
+        [names[source], names[target]] = [names[target], names[source]];
+        if (kind === "gym") {
+          [details[source], details[target]] = [details[target], details[source]];
+          [teams[source], teams[target]] = [teams[target], teams[source]];
+        }
+      }
+      return kind === "route" ? { ...region, routeNames: names } : { ...region, gyms: names, gymDetails: details, gymPokemon: teams };
+    }));
+  }
+
   function removeRoute(routeIndex: number) {
+    if (!canEditContent()) return;
+    if (!saveRecoverySnapshot("Before route deletion")) return;
     if (contentRegionIndex === null) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
 
         const routeName = region.routeNames[routeIndex];
         const routePokemon = { ...region.routePokemon };
@@ -982,16 +1200,13 @@ export default function MyRegionsScreen() {
         return {
           ...region,
           routeNames: region.routeNames
-            .filter((_, currentIndex) => currentIndex !== routeIndex)
-            .map((name, currentIndex) =>
-              name.startsWith("Route ") ? `Route ${currentIndex + 1}` : name,
-            ),
+            .filter((_, currentIndex) => currentIndex !== routeIndex),
           routePokemon,
           routeDetails: Object.fromEntries(
             region.routeNames
               .filter((_, currentIndex) => currentIndex !== routeIndex)
-              .map((name, currentIndex) => [
-                name.startsWith("Route ") ? `Route ${currentIndex + 1}` : name,
+              .map((name) => [
+                name,
                 region.routeDetails[name] ?? {
                   terrain: "",
                   difficulty: "",
@@ -1006,11 +1221,12 @@ export default function MyRegionsScreen() {
   }
 
   function addGyms(amount: number) {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null || amount <= 0) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
 
         const gyms = region.gyms ?? [];
         const numberToAdd = Math.min(amount, 8 - gyms.length);
@@ -1046,16 +1262,19 @@ export default function MyRegionsScreen() {
   }
 
   function addSuggestedGyms() {
+    if (!canEditContent()) return;
     const suggestedGymCount = getSuggestedGymCount(activeRouteLimit);
     addGyms(suggestedGymCount - activeGymNames.length);
   }
 
   function openCustomGymMenu() {
+    if (!canEditContent()) return;
     setCustomGymCount("");
     setGymCountMenuVisible(true);
   }
 
   function addCustomGyms() {
+    if (!canEditContent()) return;
     addGyms(Number(customGymCount));
     setGymCountMenuVisible(false);
   }
@@ -1135,14 +1354,16 @@ export default function MyRegionsScreen() {
   }
 
   function saveTeam() {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null || teamKind === null) return;
+    if (!saveRecoverySnapshot("Before team changes")) return;
     const savedTeam = teamPokemon
       .filter((pokemon) => pokemon.name)
       .slice(0, MAX_TEAM_POKEMON);
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
         if (teamKind === "gym" && teamIndex !== null) {
           const gymPokemon = [...region.gymPokemon];
           gymPokemon[teamIndex] = savedTeam;
@@ -1160,12 +1381,13 @@ export default function MyRegionsScreen() {
   }
 
   function saveGym() {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null || editingGymIndex === null) return;
 
     const name = gymName.trim() || `Gym ${editingGymIndex + 1}`;
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
         const nextGymDetails = [...region.gymDetails];
         nextGymDetails[editingGymIndex] = gymDetails;
         return {
@@ -1181,11 +1403,13 @@ export default function MyRegionsScreen() {
   }
 
   function removeGym(gymIndex: number) {
+    if (!canEditContent()) return;
+    if (!saveRecoverySnapshot("Before gym deletion")) return;
     if (contentRegionIndex === null) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
 
         return {
           ...region,
@@ -1206,6 +1430,7 @@ export default function MyRegionsScreen() {
   }
 
   function addEliteFour() {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null) return;
     setEditingEliteKind("eliteFour");
     setEditingEliteIndex(null);
@@ -1215,6 +1440,7 @@ export default function MyRegionsScreen() {
   }
 
   function addChampion() {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null) return;
     setEditingEliteKind("champion");
     setEditingEliteIndex(null);
@@ -1242,6 +1468,7 @@ export default function MyRegionsScreen() {
   }
 
   function saveEliteMember() {
+    if (!canEditContent()) return;
     if (contentRegionIndex === null || editingEliteKind === null) return;
 
     if (eliteCreationKind !== null) {
@@ -1250,7 +1477,7 @@ export default function MyRegionsScreen() {
 
       setRegions((currentRegions) =>
         currentRegions.map((region, index) => {
-          if (index !== contentRegionIndex) return region;
+          if (index !== contentRegionIndex || !canEditRegion(region)) return region;
 
           return eliteCreationKind === "eliteFour"
             ? {
@@ -1269,7 +1496,7 @@ export default function MyRegionsScreen() {
       const name = eliteMemberName.trim() || `Elite 4 ${editingEliteIndex + 1}`;
       setRegions((currentRegions) =>
         currentRegions.map((region, index) =>
-          index === contentRegionIndex
+          index === contentRegionIndex && canEditRegion(region)
             ? {
                 ...region,
                 eliteFour: region.eliteFour.map((member, memberIndex) =>
@@ -1283,7 +1510,7 @@ export default function MyRegionsScreen() {
       const name = eliteMemberName.trim() || "Champion";
       setRegions((currentRegions) =>
         currentRegions.map((region, index) =>
-          index === contentRegionIndex ? { ...region, champion: name } : region,
+          index === contentRegionIndex && canEditRegion(region) ? { ...region, champion: name } : region,
         ),
       );
     }
@@ -1292,11 +1519,13 @@ export default function MyRegionsScreen() {
   }
 
   function removeEliteFour(memberIndex: number) {
+    if (!canEditContent()) return;
+    if (!saveRecoverySnapshot("Before Elite member deletion")) return;
     if (contentRegionIndex === null) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
 
         return {
           ...region,
@@ -1316,11 +1545,13 @@ export default function MyRegionsScreen() {
   }
 
   function removeChampion() {
+    if (!canEditContent()) return;
+    if (!saveRecoverySnapshot("Before champion deletion")) return;
     if (contentRegionIndex === null) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex ? { ...region, champion: null } : region,
+        index === contentRegionIndex && canEditRegion(region) ? { ...region, champion: null } : region,
       ),
     );
   }
@@ -1376,6 +1607,7 @@ export default function MyRegionsScreen() {
     position: MapPosition,
     event: { nativeEvent: { pageX: number; pageY: number } },
   ) {
+    if (!canEditContent()) return;
     mapDragRef.current = {
       id,
       startX: event.nativeEvent.pageX,
@@ -1387,6 +1619,7 @@ export default function MyRegionsScreen() {
   function moveMapDrag(event: {
     nativeEvent: { pageX: number; pageY: number };
   }) {
+    if (!canEditContent()) return;
     const drag = mapDragRef.current;
     if (!drag) return;
 
@@ -1416,12 +1649,13 @@ export default function MyRegionsScreen() {
   }
 
   function finishMapDrag() {
+    if (!canEditContent()) return;
     mapDragRef.current = null;
     if (contentRegionIndex === null) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex
+        index === contentRegionIndex && canEditRegion(region)
           ? { ...region, mapPositions: mapPositionsRef.current }
           : region,
       ),
@@ -1457,7 +1691,7 @@ export default function MyRegionsScreen() {
 
   function createRegion() {
     const name = regionName.trim();
-    if (!name) return;
+    if (!name || !validateRouteCount(routeCount, typeof creationTemplate === "number" ? regions[creationTemplate]?.routeNames.length ?? 0 : 0)) return;
 
     setRegions((currentRegions) => [
       ...currentRegions,
@@ -1479,18 +1713,30 @@ export default function MyRegionsScreen() {
         mapPositions: {},
         gimmicks: [],
         music: [],
+        ...((creationTemplate === "basic" ? {
+          gyms: Array.from({length: 8}, (_, index) => `Gym ${index + 1}`),
+          gymDetails: Array.from({length: 8}, () => ({leader: "", specialty: "", badge: "", levelCap: "", reward: "", puzzle: ""})),
+          gymPokemon: Array.from({length: 8}, () => []),
+        } : typeof creationTemplate === "number" && regions[creationTemplate] ? (() => {
+          const template = JSON.parse(JSON.stringify(regions[creationTemplate])) as Region;
+          return {routeNames: template.routeNames, routePokemon: template.routePokemon, routeDetails: template.routeDetails,
+            gyms: template.gyms, gymDetails: template.gymDetails, gymPokemon: template.gymPokemon,
+            eliteFour: template.eliteFour, eliteFourPokemon: template.eliteFourPokemon, champion: template.champion,
+            championPokemon: template.championPokemon, mapPositions: template.mapPositions, gimmicks: template.gimmicks, music: template.music};
+        })() : {}) as Partial<Region>),
       },
     ]);
     setMenuVisible(false);
   }
 
   function saveRegion() {
+    if (editingRegionIndex === null || !canEditRegion(regions[editingRegionIndex])) return;
     const name = regionName.trim();
-    if (!name || editingRegionIndex === null) return;
+    if (!name || !validateRouteCount(routeCount, regions[editingRegionIndex].routeNames.length)) return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === editingRegionIndex
+        index === editingRegionIndex && canEditRegion(region)
           ? {
               ...region,
               name,
@@ -1536,19 +1782,21 @@ export default function MyRegionsScreen() {
   }
 
   function saveRoute() {
+    if (!canEditContent()) return;
     const total = selectedRoutePokemon.reduce(
       (sum, entry) => sum + Number(entry.percentage || 0),
       0,
     );
-    if (total !== 100 || selectedRoutePokemon.some((entry) => !entry.name)) {
+    if (!Number.isFinite(total) || Math.abs(total - 100) > 0.001 || selectedRoutePokemon.some((entry) => !entry.name || !Number.isFinite(Number(entry.percentage)) || Number(entry.percentage) < 0 || Number(entry.percentage) > 100)) {
       setPercentageError(true);
       return;
     }
 
     if (contentRegionIndex === null) return;
+    if (!saveRecoverySnapshot("Before route encounter changes")) return;
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex
+        index === contentRegionIndex && canEditRegion(region)
           ? {
               ...region,
               routePokemon: {
@@ -1566,13 +1814,82 @@ export default function MyRegionsScreen() {
     setRouteContentMenuVisible(false);
   }
 
-  function deleteRegion() {
-    if (editingRegionIndex === null) return;
+  function archiveRegion(index: number, kind: "region" | "snapshot", description?: string) {
+    const region = regions[index];
+    if (!region) return null;
+    try {
+      const previous = typeof window === "undefined" ? recoveryEntries : readRecovery<Region>();
+      const entry: RecoveryEntry<Region> = {
+        id: generateRoomCode(), name: description ? `${region.name} — ${description}` : region.name,
+        region: JSON.parse(JSON.stringify(region)), index,
+        deletedAt: new Date().toISOString(), kind,
+      };
+      const next = [entry, ...previous];
+      if (typeof window !== "undefined" && !saveRecovery(next)) {
+        setRecoveryMessage("Deletion cancelled: the recovery copy could not be saved. Free browser storage and retry.");
+        return null;
+      }
+      setRecoveryEntries(next);
+      setRecoveryMessage("");
+      return entry.id;
+    } catch {
+      setRecoveryMessage("Deletion cancelled: recovery storage could not be read. Export a backup first.");
+      return null;
+    }
+  }
 
-    setRegions((currentRegions) =>
-      currentRegions.filter((_, index) => index !== editingRegionIndex),
-    );
+  function saveRecoverySnapshot(description: string) {
+    return contentRegionIndex !== null && archiveRegion(contentRegionIndex, "snapshot", description) !== null;
+  }
+
+  function restoreRecoveryEntry(id: string) {
+    const entry = recoveryEntries.find((item) => item.id === id);
+    if (!entry) return;
+    const next = recoverRegion(regions, entry);
+    if (next === regions && !regions.some((region) => region.recoveryId === id)) {
+      setRecoveryMessage("This shared region is already saved. Its recovery copy has been kept.");
+      return;
+    }
+    // Save the restored region first. Keep recovery if either write fails.
+    if (typeof window !== "undefined" && !saveLocalData(REGIONS_STORAGE_KEY, JSON.stringify(next.filter((region) => !region.temporary)))) {
+      setRecoveryMessage("Restore could not be saved. Your recovery copy is still available.");
+      return;
+    }
+    setRegions(next);
+    const remaining = recoveryEntries.filter((item) => item.id !== id);
+    if (typeof window !== "undefined" && !saveRecovery(remaining)) {
+      setRecoveryMessage("Region restored. Recovery cleanup could not be saved; retrying Restore will not duplicate it.");
+      return;
+    }
+    setRecoveryEntries(remaining);
+    setLastDeletedId(null);
+    setRecoveryMessage(entry.kind === "snapshot" ? "Recovered a separate region copy; your later edits are unchanged." : "Region restored.");
+  }
+
+  function removeSavedRegion(index: number) {
+    const region = regions[index];
+    if (!region) return;
+    const recoveryId = archiveRegion(index, "region");
+    if (!recoveryId) return;
+    stopLiveShare();
+    setLiveGuestPermission(null);
+    setLastDeletedId(recoveryId);
+    setRegions((current) => current.filter((_, regionIndex) => regionIndex !== index));
     setMenuVisible(false);
+    setContentMenuVisible(false);
+    setContentRegionIndex(null);
+    setEditingRegionIndex(null);
+    // Clear the link so deleting a saved copy does not immediately import it again.
+    router.replace("/my-regions");
+    setSharedPermission(null);
+  }
+
+  function undoRegionDeletion() {
+    if (lastDeletedId) restoreRecoveryEntry(lastDeletedId);
+  }
+
+  function deleteRegion() {
+    if (editingRegionIndex !== null) removeSavedRegion(editingRegionIndex);
   }
 
   function confirmRegionDelete() {
@@ -1592,7 +1909,11 @@ export default function MyRegionsScreen() {
     setImportError("");
     setExportText(
       JSON.stringify(
-        { version: 2, exportedAt: new Date().toISOString(), regions },
+        {
+          version: 2,
+          exportedAt: new Date().toISOString(),
+          regions: regions.filter((region) => !region.temporary),
+        },
         null,
         2,
       ),
@@ -1675,6 +1996,7 @@ export default function MyRegionsScreen() {
     try {
       const parsed = JSON.parse(importText) as unknown;
       const nextRegions = normalizeImportedRegions(parsed);
+      stopLiveShare();
       setRegions(nextRegions);
       setImportExportVisible(false);
       setImportText("");
@@ -1718,13 +2040,8 @@ export default function MyRegionsScreen() {
   }
 
   async function copyExportData() {
-    if (typeof navigator === "undefined" || !navigator.clipboard) {
-      setImportError("Clipboard is unavailable on this device.");
-      return;
-    }
-
-    await navigator.clipboard.writeText(exportText);
-    setImportExportVisible(false);
+    const copied = await copyText(exportText);
+    setImportError(copied ? "Export copied." : "Copy failed. Select the export text above or download the file.");
   }
 
   function downloadExportData() {
@@ -1749,9 +2066,10 @@ export default function MyRegionsScreen() {
     );
     if (!link) return;
 
-    if (Platform.OS === "web" && typeof navigator !== "undefined") {
-      await navigator.clipboard?.writeText(link);
-      setShareVisible(false);
+    setManualShareLink(link);
+    if (Platform.OS === "web") {
+      const copied = await copyText(link);
+      setCopyStatus(copied ? "Share link copied." : "Copy failed. Select and copy the link below.");
       return;
     }
 
@@ -1771,15 +2089,17 @@ export default function MyRegionsScreen() {
   }
 
   async function sendCommentToOwner() {
-    if (!sharedComment || !regions[0]) return;
-    const responseLink = createCommentResponseLink(regions[0], sharedComment);
+    const sharedRegion = regions.find((region) => region.sharedLinkKey === openedSharedLink.current);
+    if (!sharedComment || !sharedRegion) return;
+    const responseLink = createCommentResponseLink(sharedRegion, sharedComment);
     if (!responseLink) return;
 
-    if (Platform.OS === "web" && typeof navigator !== "undefined") {
-      await navigator.clipboard?.writeText(responseLink);
-      setCommentSentMessage(
-        "Comment response link copied. Send it to the region owner so they can view your comment.",
-      );
+    setCommentResponseLink(responseLink);
+    if (Platform.OS === "web") {
+      const copied = await copyText(responseLink);
+      setCommentSentMessage(copied
+        ? "Comment response link copied. Send it to the region owner."
+        : "Copy failed. Select and copy the comment response link below.");
       return;
     }
 
@@ -1794,11 +2114,12 @@ export default function MyRegionsScreen() {
 
   const activeContentRegion =
     contentRegionIndex === null ? null : regions[contentRegionIndex];
+  const contentReadOnly = !canEditRegion(activeContentRegion);
   const activeRouteNames = activeContentRegion?.routeNames ?? [];
   const activeGymNames = activeContentRegion?.gyms ?? [];
   const activeRouteLimit = Number(activeContentRegion?.routes);
   const canAddRoute =
-    activeRouteLimit <= 0 || activeRouteNames.length < activeRouteLimit;
+    activeRouteLimit > 0 && activeRouteNames.length < activeRouteLimit;
   const suggestedGymCount = getSuggestedGymCount(activeRouteLimit);
   const canAddSuggestedGyms =
     suggestedGymCount > 0 && activeGymNames.length < suggestedGymCount;
@@ -1815,7 +2136,34 @@ export default function MyRegionsScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.screenScrollContent}
+        showsVerticalScrollIndicator
+        style={styles.screenScroll}
+      >
       <ThemedText type="title">My Regions</ThemedText>
+      {recoveryMessage ? <ThemedText accessibilityLiveRegion="polite" type="small">{recoveryMessage}</ThemedText> : null}
+      {lastDeletedId ? (
+        <Pressable accessibilityRole="button" onPress={undoRegionDeletion} style={styles.contentButton}>
+          <ThemedText type="smallBold">Undo deletion</ThemedText>
+        </Pressable>
+      ) : null}
+      {recoveryEntries.length ? (
+        <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: recoveryExpanded }} onPress={() => setRecoveryExpanded(!recoveryExpanded)} style={styles.contentButton}>
+            <ThemedText type="smallBold">Recently Deleted & Recovery ({recoveryEntries.length})</ThemedText>
+          </Pressable>
+          {recoveryExpanded ? <>
+            <ThemedText type="small">Recovery copies stay in this browser across reloads and are included in full backups. Content deletions restore a separate region copy so later edits are kept.</ThemedText>
+            {recoveryEntries.map((entry) => <View key={entry.id} style={styles.actionRow}>
+              <ThemedText style={{ flexShrink: 1 }} type="small">{entry.name} · {new Date(entry.deletedAt).toLocaleDateString()}</ThemedText>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Restore ${entry.name}`} onPress={() => restoreRecoveryEntry(entry.id)} style={styles.contentButton}>
+                <ThemedText type="smallBold">Restore</ThemedText>
+              </Pressable>
+            </View>)}
+          </> : null}
+        </ThemedView>
+      ) : null}
       {liveGuestPermission ? (
         <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
           <ThemedText type="smallBold">
@@ -1833,6 +2181,11 @@ export default function MyRegionsScreen() {
             This region syncs directly with the owner&apos;s device while
             this connection stays open. Nothing is stored on a server.
           </ThemedText>
+          {liveShareStatus !== "connected" ? (
+            <Pressable accessibilityRole="button" onPress={() => liveSessionRef.current?.connect()} style={styles.contentButton}>
+              <ThemedText type="smallBold">Reconnect</ThemedText>
+            </Pressable>
+          ) : null}
           {liveGuestPermission === "comment" ? (
             <View style={styles.liveGuestActions}>
               <TextInput
@@ -1890,6 +2243,9 @@ export default function MyRegionsScreen() {
             : null}
         </ThemedView>
       ) : null}
+      {commentResponseLink ? (
+        <TextInput accessibilityLabel="Comment response link" editable={false} multiline selectTextOnFocus value={commentResponseLink} style={[styles.input, { maxHeight: 100 }]} />
+      ) : null}
       {sharedPermission ? (
         <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
           <ThemedText type="smallBold">
@@ -1906,7 +2262,7 @@ export default function MyRegionsScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             {isCommentResponse
               ? "This comment was sent back in a response link. Save or copy it into your region notes as needed."
-              : "This is a local shared copy. Permissions and comments travel with the link, but accounts and live synchronization are not available."}
+              : "Shared regions open as temporary previews. Choose ✓ Add to keep a copy on this device, or ✕ Dismiss to close the preview."}
           </ThemedText>
           {sharedComment ? (
             <ThemedText type="small">Comment: {sharedComment}</ThemedText>
@@ -1988,21 +2344,86 @@ export default function MyRegionsScreen() {
       ) : (
         <View style={styles.regionsSection}>
           <ThemedView type="backgroundElement" style={styles.regionsArea}>
+            <TextInput accessibilityLabel="Search regions and contents" placeholder="Search regions, routes, gyms, or Pokémon" value={regionSearch} onChangeText={setRegionSearch} style={styles.input} />
+            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: unfinishedOnly }} onPress={() => setUnfinishedOnly(value => !value)} style={styles.closeButton}>
+              <ThemedText>{unfinishedOnly ? "✓ " : ""}Show unfinished regions only</ThemedText>
+            </Pressable>
             <View style={styles.regionList}>
-              {regions.map((region, index) => (
+              {regions.map((region, index) => ({region,index})).filter(({region}) => {
+                const searchable = [region.name, region.rivalName, region.type, ...region.routeNames, ...region.gyms,
+                  ...Object.values(region.routePokemon).flat().map(pokemon => pokemon.name),
+                  ...region.gymPokemon.flat().map(pokemon => pokemon.name), ...region.eliteFour,
+                  ...region.eliteFourPokemon.flat().map(pokemon => pokemon.name), region.champion ?? "",
+                  ...region.championPokemon.map(pokemon => pokemon.name)].join(" ").toLowerCase();
+                return searchable.includes(regionSearch.trim().toLowerCase()) && (!unfinishedOnly || regionChecklist(region).some(item => !item.done));
+              }).map(({region, index}) => (
                 <View key={`${region.name}-${region.rivalName}-${index}`} style={styles.regionCard}>
+                  <RegionChecklist region={region} onOpen={section => {
+                    openContentMenu(index);
+                    setRoutesExpanded(section === "routes"); setGymsExpanded(section === "gyms");
+                    setEliteFourExpanded(section === "eliteFour"); setMapExpanded(section === "map");
+                  }} />
+                  {region.temporary ? (
+                    <View style={styles.regionActions}>
+                      {region.sharePermission && !region.temporary ? (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove saved copy of ${region.name}`}
+                          onPress={() => confirmDeletePrompt({ title: "Remove saved copy?", message: "This removes the copy on this device. You can restore it from Recently Deleted & Recovery.", onConfirm: () => removeSavedRegion(index) })}
+                          style={styles.contentButton}>
+                          <ThemedText type="smallBold">Remove copy</ThemedText>
+                        </Pressable>
+                      ) : null}
+                      <ThemedText type="small">Temporary shared preview</ThemedText>
+                      <Pressable
+                        accessibilityLabel={`Add ${region.name} permanently`}
+                        accessibilityRole="button"
+                        onPress={() => acceptSharedRegion(index)}
+                        style={styles.contentButton}
+                      >
+                        <ThemedText type="smallBold">✓ Add</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`Dismiss ${region.name}`}
+                        accessibilityRole="button"
+                        onPress={() => dismissSharedRegion(index)}
+                        style={styles.contentButton}
+                      >
+                        <ThemedText type="smallBold">✕ Dismiss</ThemedText>
+                      </Pressable>
+                    </View>
+                  ) : null}
                   <View style={styles.regionRow}>
                     <ThemedText
                       type="subtitle"
                       adjustsFontSizeToFit
-                      minimumFontScale={0.45}
-                      numberOfLines={1}
+                      minimumFontScale={0.8}
+                      numberOfLines={3}
                       style={styles.savedRegionName}
                     >
                       {region.name}
                     </ThemedText>
                     <View style={styles.regionActions}>
+                      {region.sharePermission && !region.temporary ? (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove saved copy of ${region.name}`}
+                          onPress={() => confirmDeletePrompt({ title: "Remove saved copy?", message: "This removes the copy on this device. You can restore it from Recently Deleted & Recovery.", onConfirm: () => removeSavedRegion(index) })}
+                          style={styles.contentButton}>
+                          <ThemedText type="smallBold">Remove copy</ThemedText>
+                        </Pressable>
+                      ) : null}
+                      {!region.sharePermission && !region.liveRoomCode ? (
+                        <Pressable
+                          accessibilityLabel={`Duplicate ${region.name}`}
+                          accessibilityRole="button"
+                          onPress={() => duplicateRegion(index)}
+                          style={({ pressed }) => [
+                            styles.contentButton,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <ThemedText type="smallBold">Duplicate</ThemedText>
+                        </Pressable>
+                      ) : null}
                       <Pressable
+                        disabled={!canEditRegion(region)}
                         accessibilityLabel={`Edit ${region.name}`}
                         accessibilityRole="button"
                         onPress={() => openEditMenu(index)}
@@ -2034,6 +2455,8 @@ export default function MyRegionsScreen() {
                           accessibilityLabel={`Share ${region.name}`}
                           accessibilityRole="button"
                           onPress={() => {
+                            setCopyStatus("");
+                            setManualShareLink("");
                             setShareRegionIndex(index);
                             setSharePermission("view");
                             setShareComment("");
@@ -2135,6 +2558,8 @@ export default function MyRegionsScreen() {
         </View>
       ) : null}
 
+      </ScrollView>
+
       <Modal
         animationType="fade"
         onRequestClose={() => {
@@ -2151,7 +2576,7 @@ export default function MyRegionsScreen() {
             </ThemedText>
             <View style={styles.shareModeOptions}>
               <Pressable
-                onPress={() => setShareMode("link")}
+                onPress={() => { setCopyStatus(""); setShareMode("link"); }}
                 style={[
                   styles.shareModeOption,
                   shareMode === "link" && styles.selectedDropdown,
@@ -2160,7 +2585,7 @@ export default function MyRegionsScreen() {
                 <ThemedText type="smallBold">Share Link</ThemedText>
               </Pressable>
               <Pressable
-                onPress={() => setShareMode("live")}
+                onPress={() => { setCopyStatus(""); setShareMode("live"); }}
                 style={[
                   styles.shareModeOption,
                   shareMode === "live" && styles.selectedDropdown,
@@ -2174,7 +2599,7 @@ export default function MyRegionsScreen() {
                 <ThemedText type="small" themeColor="textSecondary">
                   This creates a self-contained link. It is not real-time
                   collaboration; the recipient receives a local copy with the
-                  selected permission.
+                  selected permission. Anyone with the link receives the data and can make their own copy; snapshot permissions are not access security.
                 </ThemedText>
                 <View style={styles.sharePermissionOptions}>
                   {(
@@ -2309,6 +2734,11 @@ export default function MyRegionsScreen() {
                         ))}
                       </View>
                     ) : null}
+                    {liveShareStatus !== "connected" ? (
+                      <Pressable accessibilityRole="button" onPress={() => liveSessionRef.current?.connect()} style={styles.contentButton}>
+                        <ThemedText type="smallBold">Reconnect</ThemedText>
+                      </Pressable>
+                    ) : null}
                     <Pressable
                       onPress={stopLiveShare}
                       style={({ pressed }) => [
@@ -2324,6 +2754,12 @@ export default function MyRegionsScreen() {
                 )}
               </>
             )}
+            {copyStatus ? <ThemedText accessibilityLiveRegion="polite" type="small">{copyStatus}</ThemedText> : null}
+            {(shareMode === "live" ? liveShareLink : manualShareLink) ? (
+              <TextInput accessibilityLabel="Share link" editable={false} multiline selectTextOnFocus
+                value={shareMode === "live" ? liveShareLink : manualShareLink}
+                style={[styles.input, { maxHeight: 100 }]} />
+            ) : null}
             <Pressable
               onPress={() => {
                 setShareVisible(false);
@@ -2390,6 +2826,11 @@ export default function MyRegionsScreen() {
         visible={menuVisible}
       >
         <View style={styles.modalOverlay}>
+          <ScrollView
+            contentContainerStyle={styles.modalScrollContent}
+            showsVerticalScrollIndicator
+            style={styles.modalScroll}
+          >
           <ThemedView type="backgroundElement" style={styles.menu}>
             <ThemedText type="subtitle" style={styles.menuTitle}>
               {editingRegionIndex === null
@@ -2437,36 +2878,22 @@ export default function MyRegionsScreen() {
               </View>
             </View>
 
+            {editingRegionIndex === null ? <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold">Start from a template</ThemedText>
+              <View style={styles.gymActions}>
+                <Pressable style={styles.closeButton} onPress={() => setCreationTemplate(null)}><ThemedText>{creationTemplate === null ? "✓ " : ""}Blank</ThemedText></Pressable>
+                <Pressable style={styles.closeButton} onPress={() => {setCreationTemplate("basic"); setRouteCount("20");}}><ThemedText>{creationTemplate === "basic" ? "✓ " : ""}Eight gyms</ThemedText></Pressable>
+                {regions.map((region, index) => canEditRegion(region) && !region.temporary ? <Pressable key={index} style={styles.closeButton}
+                  onPress={() => {setCreationTemplate(index); setRouteCount(region.routes); setRegionType(region.type);}}>
+                  <ThemedText>{creationTemplate === index ? "✓ " : ""}Use {region.name}</ThemedText></Pressable> : null)}
+              </View>
+            </View> : null}
             <View style={styles.fieldGroup}>
               <ThemedText type="smallBold">Number of Routes</ThemedText>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setRouteMenuVisible((visible) => !visible)}
-                style={styles.routeDropdown}
-              >
-                <ThemedText type="small">
-                  {routeCount || "Select number of routes"}
-                </ThemedText>
-              </Pressable>
-              {routeMenuVisible && (
-                <View style={styles.routeMenu}>
-                  {routeCounts.map((count) => (
-                    <Pressable
-                      key={count}
-                      onPress={() => {
-                        setRouteCount(count);
-                        setRouteMenuVisible(false);
-                      }}
-                      style={[
-                        styles.routeOption,
-                        routeCount === count && styles.selectedDropdown,
-                      ]}
-                    >
-                      <ThemedText type="small">{count}</ThemedText>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
+              <TextInput accessibilityLabel="Number of Routes" keyboardType="number-pad"
+                placeholder="e.g. 20" value={routeCount} onChangeText={setRouteCount} style={styles.input} />
+              <ThemedText type="small">Choose 1–999 routes. You can change this limit later.</ThemedText>
+              {routeCountError ? <ThemedText type="small">{routeCountError}</ThemedText> : null}
             </View>
 
             <Pressable
@@ -2503,6 +2930,7 @@ export default function MyRegionsScreen() {
               <ThemedText type="smallBold">Close</ThemedText>
             </Pressable>
           </ThemedView>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -2536,7 +2964,7 @@ export default function MyRegionsScreen() {
               <View style={styles.musicTypeOptions}>
                 {(["sheet", "file"] as MusicEntry["kind"][]).map(
                   (kind) => (
-                    <Pressable
+                    <Pressable disabled={contentReadOnly}
                       key={kind}
                       onPress={() => setMusicKind(kind)}
                       style={[
@@ -2564,7 +2992,7 @@ export default function MyRegionsScreen() {
                 style={styles.input}
                 value={musicUri.startsWith("data:") ? "" : musicUri}
               />
-              <Pressable
+              <Pressable disabled={contentReadOnly}
                 onPress={chooseMusicFile}
                 style={({ pressed }) => [
                   styles.secondaryAction,
@@ -2581,7 +3009,7 @@ export default function MyRegionsScreen() {
             </View>
             <Pressable
               onPress={saveMusicEntry}
-              disabled={!musicName.trim() || !musicUri.trim()}
+              disabled={contentReadOnly || (!musicName.trim() || !musicUri.trim())}
               style={({ pressed }) => [
                 styles.createMenuButton,
                 (!musicName.trim() || !musicUri.trim()) && styles.disabledButton,
@@ -2650,7 +3078,7 @@ export default function MyRegionsScreen() {
                 value={newGimmickDescription}
               />
             </View>
-            <Pressable
+            <Pressable disabled={contentReadOnly}
               onPress={saveNewGimmick}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -2825,12 +3253,17 @@ export default function MyRegionsScreen() {
               </Pressable>
               {routesExpanded ? (
                 <View style={styles.contentDropdownContent}>
+                  <TextInput accessibilityLabel="Filter encounters" placeholder="Filter by route, Pokémon, terrain, time, weather, or progression" value={encounterFilter} onChangeText={setEncounterFilter} style={styles.input} />
                   <ScrollView
                     style={styles.contentRouteList}
                     contentContainerStyle={styles.contentRouteContent}
                     showsVerticalScrollIndicator
                   >
-                    {activeRouteNames.map((routeName, routeIndex) => (
+                    {activeRouteNames.map((routeName, routeIndex) => ({routeName, routeIndex})).filter(({routeName}) => {
+                      const details = activeContentRegion?.routeDetails[routeName];
+                      return [routeName, details?.terrain, details?.time, details?.weather, details?.progression,
+                        ...(activeContentRegion?.routePokemon[routeName] ?? []).map(entry => entry.name)].join(" ").toLowerCase().includes(encounterFilter.trim().toLowerCase());
+                    }).map(({routeName, routeIndex}) => (
                       <Animated.View
                         key={`${routeName}-${routeIndex}`}
                         style={getWaterfallStyle(
@@ -2839,6 +3272,14 @@ export default function MyRegionsScreen() {
                         )}
                       >
                         <View style={styles.routeActionRow}>
+                          {!contentReadOnly ? <>
+                            {(["up", "down", "duplicate"] as const).map(action => <Pressable key={action}
+                              accessibilityLabel={`${action} ${routeName}`} style={styles.closeButton}
+                              disabled={(action === "up" && routeIndex === 0) || (action === "down" && routeIndex === activeRouteNames.length - 1) || (action === "duplicate" && !canAddRoute)}
+                              onPress={() => organizeContent("route", routeIndex, action)}>
+                              <ThemedText>{action === "up" ? "↑" : action === "down" ? "↓" : "Duplicate"}</ThemedText>
+                            </Pressable>)}
+                          </> : null}
                           <Pressable
                             accessibilityLabel={routeName}
                             accessibilityRole="button"
@@ -2850,7 +3291,7 @@ export default function MyRegionsScreen() {
                           >
                             <ThemedText type="small">{routeName}</ThemedText>
                           </Pressable>
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${routeName}`}
                             accessibilityRole="button"
                             onPress={() =>
@@ -2871,19 +3312,22 @@ export default function MyRegionsScreen() {
                       </Animated.View>
                     ))}
                   </ScrollView>
-                  <Pressable
-                    onPress={addRoute}
-                    disabled={!canAddRoute}
-                    style={({ pressed }) => [
-                      styles.createMenuButton,
-                      !canAddRoute && styles.disabledButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">
-                      {canAddRoute ? "Add All Routes" : "Route Limit Reached"}
-                    </ThemedText>
-                  </Pressable>
+                  <ThemedText type="small">{activeRouteNames.length} of {activeRouteLimit || 0} routes added</ThemedText>
+                  {!contentReadOnly ? <>
+                    <Pressable style={styles.closeButton} onPress={() => {
+                      setRouteLimitDraft(String(activeRouteLimit || 1)); setCustomRouteCount("1");
+                      setRouteCountError(""); setCustomRoutesVisible(true);
+                    }}><ThemedText type="smallBold">Change Route Limit</ThemedText></Pressable>
+                    {canAddRoute ? <View style={styles.routeActionRow}>
+                      <Pressable onPress={() => addRoute()} style={styles.createMenuButton}>
+                        <ThemedText type="smallBold">Add All Routes</ThemedText>
+                      </Pressable>
+                      <Pressable style={styles.createMenuButton} onPress={() => {
+                        setRouteLimitDraft(String(activeRouteLimit)); setCustomRouteCount("1");
+                        setRouteCountError(""); setCustomRoutesVisible(true);
+                      }}><ThemedText type="smallBold">Add Custom Routes</ThemedText></Pressable>
+                    </View> : <ThemedText type="small">Route limit reached</ThemedText>}
+                  </> : null}
                 </View>
               ) : null}
               <Pressable
@@ -2948,7 +3392,7 @@ export default function MyRegionsScreen() {
                               </ThemedText>
                             </Pressable>
                           </View>
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             onPress={() => removeMusicEntry(index)}
                             style={styles.smallDeleteAction}
                           >
@@ -2962,7 +3406,7 @@ export default function MyRegionsScreen() {
                       No music added yet.
                     </ThemedText>
                   )}
-                  <Pressable
+                  <Pressable disabled={contentReadOnly}
                     onPress={openMusicEditor}
                     style={({ pressed }) => [
                       styles.createMenuButton,
@@ -2988,7 +3432,7 @@ export default function MyRegionsScreen() {
                   <View style={styles.gymActions}>
                     <Pressable
                       onPress={addSuggestedGyms}
-                      disabled={!canAddSuggestedGyms}
+                      disabled={contentReadOnly || (!canAddSuggestedGyms)}
                       style={({ pressed }) => [
                         styles.gymActionButton,
                         !canAddSuggestedGyms && styles.disabledButton,
@@ -3005,7 +3449,7 @@ export default function MyRegionsScreen() {
                     </Pressable>
                     <Pressable
                       onPress={openCustomGymMenu}
-                      disabled={remainingGymSlots <= 0}
+                      disabled={contentReadOnly || (remainingGymSlots <= 0)}
                       style={({ pressed }) => [
                         styles.gymActionButton,
                         remainingGymSlots <= 0 && styles.disabledButton,
@@ -3029,6 +3473,14 @@ export default function MyRegionsScreen() {
                         )}
                       >
                         <View style={styles.routeActionRow}>
+                          {!contentReadOnly ? <>
+                            {(["up", "down", "duplicate"] as const).map(action => <Pressable key={action}
+                              accessibilityLabel={`${action} ${gymName}`} style={styles.closeButton}
+                              disabled={(action === "up" && gymIndex === 0) || (action === "down" && gymIndex === activeGymNames.length - 1) || (action === "duplicate" && remainingGymSlots <= 0)}
+                              onPress={() => organizeContent("gym", gymIndex, action)}>
+                              <ThemedText>{action === "up" ? "↑" : action === "down" ? "↓" : "Duplicate"}</ThemedText>
+                            </Pressable>)}
+                          </> : null}
                           <Pressable
                             accessibilityLabel={`Edit ${gymName}`}
                             accessibilityRole="button"
@@ -3055,7 +3507,7 @@ export default function MyRegionsScreen() {
                                 : "Pokemon"}
                             </ThemedText>
                           </Pressable>
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${gymName}`}
                             accessibilityRole="button"
                             onPress={() =>
@@ -3094,7 +3546,7 @@ export default function MyRegionsScreen() {
                     <View style={styles.gymActions}>
                       <Pressable
                         onPress={addEliteFour}
-                        disabled={!canAddEliteFour}
+                        disabled={contentReadOnly || (!canAddEliteFour)}
                         style={({ pressed }) => [
                           styles.gymActionButton,
                           !canAddEliteFour && styles.disabledButton,
@@ -3107,7 +3559,7 @@ export default function MyRegionsScreen() {
                       </Pressable>
                       <Pressable
                         onPress={addChampion}
-                        disabled={!canAddChampion}
+                        disabled={contentReadOnly || (!canAddChampion)}
                         style={({ pressed }) => [
                           styles.gymActionButton,
                           !canAddChampion && styles.disabledButton,
@@ -3159,7 +3611,7 @@ export default function MyRegionsScreen() {
                                 : "Pokemon"}
                             </ThemedText>
                           </Pressable>
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${memberName}`}
                             accessibilityRole="button"
                             onPress={() =>
@@ -3208,7 +3660,7 @@ export default function MyRegionsScreen() {
                                 : "Pokemon"}
                             </ThemedText>
                           </Pressable>
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${activeChampionName}`}
                             accessibilityRole="button"
                             onPress={() =>
@@ -3249,7 +3701,7 @@ export default function MyRegionsScreen() {
                   {availableGimmicks.length > 0 ? (
                     <View style={styles.gimmickOptions}>
                       {availableGimmicks.map((gimmick) => (
-                        <Pressable
+                        <Pressable disabled={contentReadOnly}
                           key={gimmick.name}
                           onPress={() => {
                             toggleGimmick(gimmick.name);
@@ -3274,7 +3726,7 @@ export default function MyRegionsScreen() {
                       No saved gimmicks yet.
                     </ThemedText>
                   )}
-                  <Pressable
+                  <Pressable disabled={contentReadOnly}
                     onPress={openGimmickCreate}
                     style={({ pressed }) => [
                       styles.createMenuButton,
@@ -3297,6 +3749,7 @@ export default function MyRegionsScreen() {
               </Pressable>
               {mapExpanded ? (
                 <Animated.View style={getWaterfallStyle(0, 1)}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ flexGrow: 1 }}>
                   <View
                     style={[
                       styles.mapCanvas,
@@ -3360,7 +3813,7 @@ export default function MyRegionsScreen() {
                           onResponderMove={moveMapDrag}
                           onResponderRelease={finishMapDrag}
                           onResponderTerminate={finishMapDrag}
-                          onStartShouldSetResponder={() => true}
+                          onStartShouldSetResponder={() => !contentReadOnly}
                           style={[
                             styles.routeMapPiece,
                             { left: position.x, top: position.y },
@@ -3410,7 +3863,7 @@ export default function MyRegionsScreen() {
                           onResponderMove={moveMapDrag}
                           onResponderRelease={finishMapDrag}
                           onResponderTerminate={finishMapDrag}
-                          onStartShouldSetResponder={() => true}
+                          onStartShouldSetResponder={() => !contentReadOnly}
                           style={[
                             styles.gymMapPiece,
                             { left: position.x, top: position.y },
@@ -3424,6 +3877,7 @@ export default function MyRegionsScreen() {
                       );
                     })}
                   </View>
+                  </ScrollView>
                 </Animated.View>
               ) : null}
               <Pressable
@@ -3438,6 +3892,26 @@ export default function MyRegionsScreen() {
             </ScrollView>
           </ThemedView>
         </View>
+      </Modal>
+
+      <Modal animationType="fade" transparent visible={customRoutesVisible} onRequestClose={() => setCustomRoutesVisible(false)}>
+        <View style={styles.modalOverlay}><ThemedView type="backgroundElement" style={styles.gymCountMenu}>
+          <ThemedText type="subtitle">Add Custom Routes</ThemedText>
+          <ThemedText type="small">Route limit · {activeRouteNames.length} already added</ThemedText>
+          <TextInput accessibilityLabel="Route limit" editable={!contentReadOnly} keyboardType="number-pad" value={routeLimitDraft} onChangeText={setRouteLimitDraft} style={styles.input} />
+          <Pressable disabled={contentReadOnly} onPress={updateRouteLimit} style={styles.closeButton}><ThemedText>Save Route Limit</ThemedText></Pressable>
+          <ThemedText type="small">How many routes? {Math.max(0, activeRouteLimit - activeRouteNames.length)} slots available.</ThemedText>
+          <TextInput accessibilityLabel="Routes to add" editable={!contentReadOnly} keyboardType="number-pad" value={customRouteCount} onChangeText={setCustomRouteCount} style={styles.input} />
+          {routeCountError ? <ThemedText>{routeCountError}</ThemedText> : null}
+          <Pressable disabled={contentReadOnly || !canAddRoute} style={styles.createMenuButton} onPress={() => {
+            const amount = Number(customRouteCount);
+            if (!/^\d+$/.test(customRouteCount) || !Number.isSafeInteger(amount) || amount < 1 || amount > activeRouteLimit - activeRouteNames.length) {
+              setRouteCountError("Enter a whole number within the available route slots."); return;
+            }
+            addRoute(amount); setCustomRoutesVisible(false);
+          }}><ThemedText>Add Routes</ThemedText></Pressable>
+          <Pressable onPress={() => setCustomRoutesVisible(false)} style={styles.closeButton}><ThemedText>Close</ThemedText></Pressable>
+        </ThemedView></View>
       </Modal>
 
       <Modal
@@ -3509,6 +3983,7 @@ export default function MyRegionsScreen() {
             <View style={styles.fieldGroup}>
               <ThemedText type="smallBold">Gym Name</ThemedText>
               <TextInput
+                editable={!contentReadOnly}
                 placeholder="e.x. Boulder Gym"
                 placeholderTextColor="rgba(255, 255, 255, 0.6)"
                 onChangeText={setGymName}
@@ -3517,6 +3992,7 @@ export default function MyRegionsScreen() {
               />
             </View>
             <DetailInput
+                editable={!contentReadOnly}
               label="Leader"
               value={gymDetails.leader}
               onChangeText={(value) =>
@@ -3524,6 +4000,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Specialty"
               value={gymDetails.specialty}
               onChangeText={(value) =>
@@ -3531,6 +4008,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Badge"
               value={gymDetails.badge}
               onChangeText={(value) =>
@@ -3538,6 +4016,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Level Cap"
               value={gymDetails.levelCap}
               onChangeText={(value) =>
@@ -3545,6 +4024,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Reward"
               value={gymDetails.reward}
               onChangeText={(value) =>
@@ -3552,13 +4032,14 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Puzzle"
               value={gymDetails.puzzle}
               onChangeText={(value) =>
                 setGymDetails((current) => ({ ...current, puzzle: value }))
               }
             />
-            <Pressable
+            <Pressable disabled={contentReadOnly}
               onPress={saveGym}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -3595,6 +4076,15 @@ export default function MyRegionsScreen() {
                   ? "Champion Pokemon"
                   : "Elite 4 Pokemon"}
             </ThemedText>
+            {!contentReadOnly && activeContentRegion ? <View style={styles.gymActions}>
+              <ThemedText type="smallBold">Copy a team into this draft</ThemedText>
+              {[...activeContentRegion.gyms.map((name, index) => ({name, team: activeContentRegion.gymPokemon[index]})),
+                ...activeContentRegion.eliteFour.map((name, index) => ({name, team: activeContentRegion.eliteFourPokemon[index]})),
+                {name: activeContentRegion.champion ?? "Champion", team: activeContentRegion.championPokemon}]
+                .filter(source => source.team?.length).map((source, index) => <Pressable key={index} style={styles.closeButton}
+                  onPress={() => confirmDeletePrompt({title: "Replace draft team?", message: "This replaces only the team draft. Save Team applies it to the region.", onConfirm: () => {setTeamPokemon(source.team.map(entry => ({...entry, moves: [...entry.moves]}))); setTeamPokemonMenuIndex(null);}})}>
+                  <ThemedText>{source.name}</ThemedText></Pressable>)}
+            </View> : null}
             <ScrollView
               style={styles.teamPokemonList}
               contentContainerStyle={styles.contentRouteContent}
@@ -3602,6 +4092,14 @@ export default function MyRegionsScreen() {
             >
               {teamPokemon.map((pokemon, pokemonIndex) => (
                 <View key={pokemonIndex} style={styles.teamPokemonRow}>
+                  {!contentReadOnly ? <View style={styles.routeActionRow}>{([-1, 1] as const).map(direction => <Pressable key={direction}
+                    accessibilityLabel={`Move team member ${pokemonIndex + 1} ${direction < 0 ? "up" : "down"}`}
+                    disabled={pokemonIndex + direction < 0 || pokemonIndex + direction >= teamPokemon.length}
+                    style={styles.closeButton} onPress={() => {
+                      setTeamPokemon(current => { const next = [...current]; const target = pokemonIndex + direction;
+                        [next[pokemonIndex], next[target]] = [next[target], next[pokemonIndex]]; return next; });
+                      setTeamPokemonMenuIndex(null);
+                    }}><ThemedText>{direction < 0 ? "↑" : "↓"}</ThemedText></Pressable>)}</View> : null}
                   <Pressable
                     onPress={() => {
                       setTeamPokemonMenuIndex(
@@ -3621,7 +4119,7 @@ export default function MyRegionsScreen() {
                           : "Select Pokemon"}
                     </ThemedText>
                   </Pressable>
-                  <Pressable
+                  <Pressable disabled={contentReadOnly}
                     onPress={() =>
                       setTeamPokemon((currentPokemon) =>
                         currentPokemon.filter(
@@ -3636,6 +4134,7 @@ export default function MyRegionsScreen() {
                   {teamPokemonMenuIndex === pokemonIndex ? (
                     <ScrollView style={styles.teamPokemonOptions}>
                       <TextInput
+                editable={!contentReadOnly}
                         autoCapitalize="none"
                         onChangeText={setTeamPokemonSearch}
                         placeholder="Search Pokemon"
@@ -3648,7 +4147,7 @@ export default function MyRegionsScreen() {
                           option.name.includes(teamPokemonSearch.toLowerCase()),
                         )
                         .map((option) => (
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             key={option.name}
                             onPress={() => {
                               updateTeamPokemon(pokemonIndex, {
@@ -3671,6 +4170,7 @@ export default function MyRegionsScreen() {
                       <ThemedText type="smallBold">Moves</ThemedText>
                       {pokemon.moves.map((move, moveIndex) => (
                         <TextInput
+                editable={!contentReadOnly}
                           key={moveIndex}
                           onChangeText={(value) =>
                             updateTeamMove(pokemonIndex, moveIndex, value)
@@ -3688,7 +4188,7 @@ export default function MyRegionsScreen() {
             </ScrollView>
             <Pressable
               onPress={addTeamPokemon}
-              disabled={teamPokemon.length >= MAX_TEAM_POKEMON}
+              disabled={contentReadOnly || (teamPokemon.length >= MAX_TEAM_POKEMON)}
               style={({ pressed }) => [
                 styles.createMenuButton,
                 teamPokemon.length >= MAX_TEAM_POKEMON && styles.disabledButton,
@@ -3702,7 +4202,7 @@ export default function MyRegionsScreen() {
               </ThemedText>
             </Pressable>
             <View style={styles.actionRow}>
-              <Pressable
+              <Pressable disabled={contentReadOnly}
                 onPress={saveTeam}
                 style={({ pressed }) => [
                   styles.createMenuButton,
@@ -3753,6 +4253,7 @@ export default function MyRegionsScreen() {
                       : `Elite Member ${index + 1}`}
                   </ThemedText>
                   <TextInput
+                editable={!contentReadOnly}
                     placeholder={
                       eliteCreationKind === "champion"
                         ? "e.g. Blue"
@@ -3779,6 +4280,7 @@ export default function MyRegionsScreen() {
                     : "Elite 4 Name"}
                 </ThemedText>
                 <TextInput
+                editable={!contentReadOnly}
                   placeholder={
                     editingEliteKind === "champion"
                       ? "e.g. Champion Blue"
@@ -3791,7 +4293,7 @@ export default function MyRegionsScreen() {
                 />
               </View>
             )}
-            <Pressable
+            <Pressable disabled={contentReadOnly}
               onPress={saveEliteMember}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -3827,6 +4329,7 @@ export default function MyRegionsScreen() {
               {selectedRouteName}
             </ThemedText>
             <DetailInput
+                editable={!contentReadOnly}
               label="Terrain"
               value={routeDetails.terrain}
               onChangeText={(value) =>
@@ -3834,6 +4337,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Difficulty"
               value={routeDetails.difficulty}
               onChangeText={(value) =>
@@ -3844,6 +4348,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Items"
               value={routeDetails.items}
               onChangeText={(value) =>
@@ -3851,6 +4356,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
+                editable={!contentReadOnly}
               label="Trainers"
               value={routeDetails.trainers}
               onChangeText={(value) =>
@@ -3860,6 +4366,10 @@ export default function MyRegionsScreen() {
                 }))
               }
             />
+            <ThemedText type="smallBold">Encounter conditions for this route</ThemedText>
+            {(["time", "weather", "progression"] as const).map(field => <DetailInput key={field} editable={!contentReadOnly}
+              label={field === "time" ? "Time of day" : field === "weather" ? "Weather" : "Progression requirement"}
+              value={routeDetails[field] ?? ""} onChangeText={value => setRouteDetails(current => ({...current, [field]: value}))} />)}
             <View style={styles.pokemonFieldLabels}>
               <ThemedText type="smallBold" style={styles.pokemonLabel}>
                 Pokemon
@@ -3907,6 +4417,7 @@ export default function MyRegionsScreen() {
                     </ThemedText>
                   </Pressable>
                   <TextInput
+                editable={!contentReadOnly}
                     keyboardType="numeric"
                     onChangeText={(percentage) =>
                       updateRoutePokemon(index, { percentage })
@@ -3919,6 +4430,7 @@ export default function MyRegionsScreen() {
                   {pokemonMenuIndex === index && (
                     <ScrollView style={styles.pokemonOptions}>
                       <TextInput
+                editable={!contentReadOnly}
                         autoCapitalize="none"
                         onChangeText={setPokemonSearch}
                         placeholder="Search Pokemon"
@@ -4021,7 +4533,7 @@ export default function MyRegionsScreen() {
                                 Number(pokemonGenerationFilter)),
                         )
                         .map((pokemon) => (
-                          <Pressable
+                          <Pressable disabled={contentReadOnly}
                             key={pokemon.name}
                             onPress={() => {
                               updateRoutePokemon(index, { name: pokemon.name });
@@ -4053,7 +4565,7 @@ export default function MyRegionsScreen() {
                 Your Percentages Don&apos;t Equal 100%!
               </ThemedText>
             )}
-            <Pressable
+            <Pressable disabled={contentReadOnly}
               onPress={addPokemon}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -4063,7 +4575,7 @@ export default function MyRegionsScreen() {
               <ThemedText type="smallBold">Add Pokemon</ThemedText>
             </Pressable>
             <View style={styles.actionRow}>
-              <Pressable
+              <Pressable disabled={contentReadOnly}
                 onPress={saveRoute}
                 style={({ pressed }) => [
                   styles.createMenuButton,
@@ -4092,35 +4604,53 @@ export default function MyRegionsScreen() {
 }
 
 function DetailInput({
+  editable = true,
   label,
   value,
   onChangeText,
 }: {
+  editable?: boolean;
   label: string;
   value: string;
   onChangeText: (value: string) => void;
 }) {
   return (
-    <View style={styles.fieldGroup}>
+    <View style={baseStyles.fieldGroup}>
       <ThemedText type="smallBold">{label}</ThemedText>
       <TextInput
+        editable={editable}
         onChangeText={onChangeText}
         placeholder={label}
         placeholderTextColor="rgba(255, 255, 255, 0.6)"
-        style={styles.input}
+        style={baseStyles.input}
         value={value}
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  screenScroll: {
+    width: "100%",
+  },
+  screenScrollContent: {
     alignItems: "center",
     justifyContent: "flex-start",
-    paddingTop: 32,
+    gap: 16,
+    paddingTop: 20,
     paddingBottom: 24,
+    paddingHorizontal: 12,
+  },
+  modalScroll: {
+    width: "100%",
+    maxHeight: "92%",
+  },
+  modalScrollContent: {
+    alignItems: "center",
+    paddingVertical: 12,
   },
   emptyState: {
     alignItems: "center",
@@ -4198,8 +4728,8 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   regionsArea: {
-    padding: 24,
-    paddingTop: 72,
+    padding: 16,
+    paddingTop: 60,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
@@ -4214,8 +4744,8 @@ const styles = StyleSheet.create({
     lineHeight: 36,
   },
   regionList: {
-    gap: 20,
-    marginTop: 24,
+    gap: 16,
+    marginTop: 16,
   },
   regionCard: {
     padding: 12,
@@ -4225,14 +4755,15 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.08)",
   },
   savedRegionName: {
-    flex: 1,
+    width: "100%",
+    flexShrink: 1,
     fontSize: 28,
     lineHeight: 36,
   },
   regionRow: {
     minHeight: 40,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: "column",
+    alignItems: "stretch",
     justifyContent: "space-between",
     gap: 16,
   },
@@ -4250,6 +4781,8 @@ const styles = StyleSheet.create({
   regionActions: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
     gap: 12,
   },
   iconActionButton: {
@@ -4306,13 +4839,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     gap: 8,
+    flexWrap: "wrap",
     marginTop: 20,
     paddingTop: 4,
     paddingBottom: 8,
     zIndex: 2,
   },
   toolbarButton: {
-    minWidth: 90,
+    minWidth: 84,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
@@ -4357,7 +4891,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     gap: 16,
-    padding: 28,
+    padding: 20,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.2)",
@@ -4366,7 +4900,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     gap: 16,
-    padding: 24,
+    padding: 20,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.2)",
@@ -4383,10 +4917,12 @@ const styles = StyleSheet.create({
   },
   shareModeOptions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   shareModeOption: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "45%",
     minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
@@ -4439,7 +4975,7 @@ const styles = StyleSheet.create({
     maxWidth: 720,
     maxHeight: "92%",
     gap: 16,
-    padding: 24,
+    padding: 16,
     borderRadius: 16,
   },
   contentMenuScroll: {
@@ -4450,8 +4986,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   contentMenuTitle: {
-    fontSize: 48,
-    lineHeight: 56,
+    fontSize: 32,
+    lineHeight: 40,
     textAlign: "center",
   },
   contentRouteList: {
@@ -4546,6 +5082,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(60, 135, 247, 0.8)",
   },
   mapCanvas: {
+    minWidth: 490,
+    flex: 1,
     height: 540,
     overflow: "hidden",
     position: "relative",

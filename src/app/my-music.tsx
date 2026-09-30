@@ -1,5 +1,7 @@
+import { useResponsiveActions } from "@/hooks/use-responsive-actions";
 import { Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { createElement, useEffect, useState } from "react";
+import { readLocalData, saveLocalData } from "@/utils/local-data";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -43,6 +45,7 @@ function AudioPreview({ uri }: { uri: string }) {
 }
 
 export default function MyMusicScreen() {
+  const styles = useResponsiveActions(baseStyles, ["musicRow", "kindOptions"], ["musicDetails"]);
   const [music, setMusic] = useState<MusicEntry[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [search, setSearch] = useState("");
@@ -54,9 +57,10 @@ export default function MyMusicScreen() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedMusic = window.localStorage.getItem(MUSIC_STORAGE_KEY);
+    const storedMusic = readLocalData(MUSIC_STORAGE_KEY);
     if (storedMusic) {
       try {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
         setMusic(normalizeMusicEntries(JSON.parse(storedMusic)));
       } catch {
         window.localStorage.removeItem(MUSIC_STORAGE_KEY);
@@ -67,7 +71,7 @@ export default function MyMusicScreen() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoaded) {
-      window.localStorage.setItem(MUSIC_STORAGE_KEY, JSON.stringify(music));
+      saveLocalData(MUSIC_STORAGE_KEY, JSON.stringify(music));
     }
   }, [hasLoaded, music]);
 
@@ -162,39 +166,39 @@ export default function MyMusicScreen() {
         showsVerticalScrollIndicator
         style={styles.scrollView}
       >
-      <ThemedText type="title">My Music</ThemedText>
-      {music.length === 0 ? (
-        <ThemedView style={styles.emptyState}>
-          <ThemedText type="subtitle">No Music Saved Yet</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
-            Save audio links, sheet music, and other music files to reuse across your regions.
-          </ThemedText>
-          <Pressable onPress={openCreateMenu} style={({ pressed }) => pressed && styles.pressed}>
-            <ThemedView type="backgroundElement" style={styles.createButton}>
-              <ThemedText type="smallBold">Add Music</ThemedText>
-            </ThemedView>
-          </Pressable>
-        </ThemedView>
-      ) : (
-        <View style={styles.musicSection}>
-          <ThemedView type="backgroundElement" style={styles.musicArea}>
-            <Pressable onPress={openCreateMenu} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
-              <ThemedText type="subtitle">+</ThemedText>
+        <ThemedText type="title">My Music</ThemedText>
+        {music.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <ThemedText type="subtitle">No Music Saved Yet</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
+              Save audio links, sheet music, and other music files to reuse across your regions.
+            </ThemedText>
+            <Pressable onPress={openCreateMenu} style={({ pressed }) => pressed && styles.pressed}>
+              <ThemedView type="backgroundElement" style={styles.createButton}>
+                <ThemedText type="smallBold">Add Music</ThemedText>
+              </ThemedView>
             </Pressable>
-            <TextInput
-              autoCapitalize="none"
-              onChangeText={setSearch}
-              placeholder="Search music"
-              placeholderTextColor="rgba(255, 255, 255, 0.6)"
-              style={styles.searchInput}
-              value={search}
-            />
-            {filteredMusic.length === 0 ? (
-              <ThemedText type="small" style={styles.noResultsText}>
-                No music matches this search.
-              </ThemedText>
-            ) : (
-              <View style={styles.musicList}>
+          </ThemedView>
+        ) : (
+          <View style={styles.musicSection}>
+            <ThemedView type="backgroundElement" style={styles.musicArea}>
+              <Pressable onPress={openCreateMenu} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
+                <ThemedText type="subtitle">+</ThemedText>
+              </Pressable>
+              <TextInput
+                autoCapitalize="none"
+                onChangeText={setSearch}
+                placeholder="Search music"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                style={styles.searchInput}
+                value={search}
+              />
+              {filteredMusic.length === 0 ? (
+                <ThemedText type="small" style={styles.noResultsText}>
+                  No music matches this search.
+                </ThemedText>
+              ) : (
+                <View style={styles.musicList}>
                 {filteredMusic.map((entry) => {
                   const originalIndex = music.indexOf(entry);
                   return (
@@ -253,11 +257,11 @@ export default function MyMusicScreen() {
                     </View>
                   );
                 })}
-              </View>
-            )}
-          </ThemedView>
-        </View>
-      )}
+                </View>
+              )}
+            </ThemedView>
+          </View>
+        )}
       </ScrollView>
 
       <Modal animationType="fade" onRequestClose={() => setMenuVisible(false)} transparent visible={menuVisible}>
@@ -339,32 +343,32 @@ export default function MyMusicScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: { flex: 1, alignItems: "center", justifyContent: "flex-start" },
   scrollView: { width: "100%" },
-  scrollContent: { alignItems: "center", paddingTop: 32, paddingBottom: 48, paddingHorizontal: 16 },
+  scrollContent: { alignItems: "center", gap: 16, paddingTop: 20, paddingBottom: 32, paddingHorizontal: 12 },
   emptyState: { alignItems: "center", gap: 16, marginTop: 24 },
   emptyDescription: { maxWidth: 420, textAlign: "center", lineHeight: 22 },
   createButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: "rgba(60, 135, 247, 0.88)" },
-  musicSection: { width: "100%", maxWidth: 640, marginTop: 24 },
-  musicArea: { position: "relative", width: "100%", padding: 24, paddingTop: 72, borderRadius: 16, borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.18)", gap: 18, shadowColor: "#000000", shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  musicSection: { width: "100%", maxWidth: 640 },
+  musicArea: { position: "relative", width: "100%", padding: 16, paddingTop: 64, borderRadius: 16, borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.18)", gap: 16, shadowColor: "#000000", shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
   searchInput: { minHeight: 46, borderRadius: 10, paddingHorizontal: 14, color: "#ffffff", backgroundColor: "rgba(120, 140, 180, 0.12)", borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.18)" },
   addButton: { position: "absolute", top: 8, right: 8, width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: "rgba(255, 255, 255, 0.12)" },
   noResultsText: { opacity: 0.7 },
   musicList: { gap: 16 },
-  musicRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 16, borderRadius: 12, backgroundColor: "rgba(120, 140, 180, 0.08)", borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.14)" },
+  musicRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 12, padding: 12, borderRadius: 12, backgroundColor: "rgba(120, 140, 180, 0.08)", borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.14)" },
   musicDetails: { flex: 1, gap: 10, minWidth: 0 },
   musicName: { fontSize: 24, lineHeight: 30 },
   openButton: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(60, 135, 247, 0.82)" },
-  editButton: { minHeight: 36, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(120, 140, 180, 0.3)" },
+  editButton: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(120, 140, 180, 0.3)" },
   providerFrame: { overflow: "hidden", borderRadius: 10, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.22)" },
   sheetPreview: { overflow: "hidden", alignItems: "center", borderRadius: 10, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.22)" },
   pressed: { opacity: 0.7 },
   modalOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 12, backgroundColor: "rgba(0, 0, 0, 0.6)" },
   modalScrollView: { width: "100%", maxHeight: "90%" },
   modalScrollContent: { alignItems: "center", justifyContent: "center", paddingVertical: 12 },
-  menu: { width: "100%", maxWidth: 640, gap: 16, padding: 28, borderRadius: 20, borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.2)" },
-  menuTitle: { fontSize: 28, lineHeight: 36, textAlign: "center" },
+  menu: { width: "100%", maxWidth: 640, gap: 16, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: "rgba(120, 140, 180, 0.2)" },
+  menuTitle: { fontSize: 24, lineHeight: 30, textAlign: "center" },
   fieldGroup: { gap: 8 },
   input: { height: 44, borderRadius: 8, paddingHorizontal: 12, color: "#ffffff", backgroundColor: "rgba(255, 255, 255, 0.12)" },
   kindOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

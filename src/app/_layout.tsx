@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import { SavingNotice } from '@/components/saving-notice';
 import { AppearanceProvider, useAppAppearance } from '@/hooks/use-app-appearance';
 
 SplashScreen.preventAutoHideAsync();
@@ -22,6 +23,7 @@ function ThemedRouter() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
         <AppTabs />
+        <SavingNotice />
     </ThemeProvider>
   );
 }

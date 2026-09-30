@@ -1,4 +1,6 @@
+import { useResponsiveActions } from "@/hooks/use-responsive-actions";
 import { Image } from "expo-image";
+import { readLocalData, saveLocalData } from "@/utils/local-data";
 import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
@@ -13,7 +15,6 @@ import { getPokemon, type Pokemon } from "@/api/pokemon";
 import { confirmDeleteAction } from "@/utils/delete-confirmation";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { useTheme } from "@/hooks/use-theme";
 
 const APP_STORAGE_VERSION = "v2";
 const POKEMON_STORAGE_KEY = "pokemon-team";
@@ -86,7 +87,9 @@ function getNormalizedTypes(types: string[]) {
 }
 
 export default function MyPokemonScreen() {
+  const styles = useResponsiveActions(baseStyles, ["rowActions", "evolutionCardActions", "actionRow", "typeRow", "evolutionParentOptions"], []);
   const [savedPokemon, setSavedPokemon] = useState<SavedPokemon[]>([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [allPokemon, setAllPokemon] = useState<Pokemon[]>([]);
   const [customPokemon, setCustomPokemon] = useState<CustomPokemonEntry[]>([]);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -100,7 +103,6 @@ export default function MyPokemonScreen() {
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [hasEvolutions, setHasEvolutions] = useState(false);
   const [evolutionEntries, setEvolutionEntries] = useState<EvolutionEntry[]>([]);
-  const [search, setSearch] = useState("");
   const [listSearch, setListSearch] = useState("");
   const [showFavoriteOnly, setShowFavoriteOnly] = useState(false);
   const [evolutionModalVisible, setEvolutionModalVisible] = useState(false);
@@ -113,15 +115,15 @@ export default function MyPokemonScreen() {
   const [evolutionSelectedParent, setEvolutionSelectedParent] = useState<string | null>(null);
   const [editingEvolutionIndex, setEditingEvolutionIndex] = useState<number | null>(null);
   const [evolutionError, setEvolutionError] = useState("");
-  const theme = useTheme();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const stored = window.localStorage.getItem(POKEMON_STORAGE_KEY);
+    const stored = readLocalData(POKEMON_STORAGE_KEY);
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as Partial<SavedPokemon>[];
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
         setSavedPokemon(
           parsed.map((entry) => ({
             name: entry.name ?? "",
@@ -149,7 +151,7 @@ export default function MyPokemonScreen() {
     }
 
     const storedCustom =
-      window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY) ??
+      readLocalData(CUSTOM_POKEMON_STORAGE_KEY) ??
       window.localStorage.getItem(LEGACY_CUSTOM_POKEMON_STORAGE_KEY);
     if (storedCustom) {
       try {
@@ -183,26 +185,27 @@ export default function MyPokemonScreen() {
         window.localStorage.removeItem(LEGACY_CUSTOM_POKEMON_STORAGE_KEY);
       }
     }
+    setHasLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(
+    if (typeof window !== "undefined" && hasLoaded) {
+      saveLocalData(
         POKEMON_STORAGE_KEY,
         JSON.stringify(savedPokemon),
       );
     }
-  }, [savedPokemon]);
+  }, [savedPokemon, hasLoaded]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(
+    if (typeof window !== "undefined" && hasLoaded) {
+      saveLocalData(
         CUSTOM_POKEMON_STORAGE_KEY,
         JSON.stringify(customPokemon),
       );
       window.localStorage.removeItem(LEGACY_CUSTOM_POKEMON_STORAGE_KEY);
     }
-  }, [customPokemon]);
+  }, [customPokemon, hasLoaded]);
 
   useEffect(() => {
     let active = true;
@@ -218,14 +221,6 @@ export default function MyPokemonScreen() {
       active = false;
     };
   }, []);
-
-  const filteredPokemon = useMemo(
-    () =>
-      allPokemon.filter((pokemon) =>
-        pokemon.name.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [allPokemon, search],
-  );
 
   const displayedPokemon = useMemo(
     () =>
@@ -247,14 +242,6 @@ export default function MyPokemonScreen() {
         ),
     [listSearch, savedPokemon, showFavoriteOnly],
   );
-
-  function updateEvolution(index: number, value: string) {
-    setEvolutionEntries((current) =>
-      current.map((entry, entryIndex) =>
-        entryIndex === index ? { ...entry, name: value } : entry,
-      ),
-    );
-  }
 
   function openImagePicker(target: "main" | "evolution") {
     if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -426,7 +413,6 @@ export default function MyPokemonScreen() {
     setSelectedTypes([]);
     setHasEvolutions(false);
     setEvolutionEntries([]);
-    setSearch("");
     setMenuVisible(true);
   }
 
@@ -442,13 +428,12 @@ export default function MyPokemonScreen() {
     setSelectedTypes(getNormalizedTypes(item.types));
     setHasEvolutions(item.evolutions.length > 0);
     setEvolutionEntries(item.evolutions);
-    setSearch("");
     setMenuVisible(true);
   }
 
   function persistCustomEntries(entries: CustomPokemonEntry[]) {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(CUSTOM_POKEMON_STORAGE_KEY, JSON.stringify(entries));
+    saveLocalData(CUSTOM_POKEMON_STORAGE_KEY, JSON.stringify(entries));
   }
 
   function savePokemon() {
@@ -535,6 +520,11 @@ export default function MyPokemonScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.screenScrollContent}
+        showsVerticalScrollIndicator
+        style={styles.screenScroll}
+      >
       <ThemedText type="title">My Pokemon</ThemedText>
 
       {savedPokemon.length === 0 ? (
@@ -689,6 +679,7 @@ export default function MyPokemonScreen() {
           <ThemedText type="subtitle">+</ThemedText>
         </Pressable>
       ) : null}
+      </ScrollView>
 
       <Modal
         animationType="fade"
@@ -1120,14 +1111,20 @@ export default function MyPokemonScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  screenScroll: {
+    width: "100%",
+  },
+  screenScrollContent: {
     alignItems: "center",
     justifyContent: "flex-start",
     gap: 16,
-    paddingTop: 32,
+    paddingTop: 20,
     paddingBottom: 24,
+    paddingHorizontal: 12,
   },
   emptyState: {
     alignItems: "center",
@@ -1151,7 +1148,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   listArea: {
-    padding: 20,
+    padding: 16,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
@@ -1210,6 +1207,7 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.08)",
+    flexShrink: 0,
   },
   smallSprite: {
     width: 28,
@@ -1218,6 +1216,7 @@ const styles = StyleSheet.create({
   },
   pokemonTextWrap: {
     flex: 1,
+    flexShrink: 1,
     gap: 2,
   },
   pokemonName: {
@@ -1294,7 +1293,7 @@ const styles = StyleSheet.create({
     maxWidth: 640,
     maxHeight: "92%",
     gap: 16,
-    padding: 28,
+    padding: 20,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.2)",

@@ -1,23 +1,23 @@
-import { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { saveVersion, readVersions, BACKUP_TIME_KEY, type SavedVersion } from "@/utils/save-history";
+import { downloadBackup } from "./backup-restore";
+import { confirmDeleteAction } from "@/utils/delete-confirmation";
+import { syncAccount } from "@/utils/sync-engine";
+import { subscribeToSaving, hasUnsavedData, restoreBackup } from "@/utils/local-data";
+import { lastCloudSaveKey } from "@/utils/cloud-save-status";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 import { ThemedText } from "./themed-text";
 import { ThemedView } from "./themed-view";
 
 import {
   checkAuthStatus,
-  fetchCloudData,
-  getAuthToken,
   loginUser,
   logoutUser,
-  pushCloudData,
   registerUser,
   type User,
 } from "@/utils/account-sync";
 
-const CUSTOM_POKEMON_STORAGE_KEY = "custom-pokemon-options-v2";
-const GIMMICKS_STORAGE_KEY = "pokemon-gimmicks";
-const REGIONS_STORAGE_KEY = "pokemon-regions-v2";
 
 export function AccountControl() {
   const [modalVisible, setModalVisible] = useState(false);
@@ -28,75 +28,72 @@ export function AccountControl() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [versions, setVersions] = useState<SavedVersion[]>([]);
+  const [backupDue, setBackupDue] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
+  const [lastCloudSave, setLastCloudSave] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const syncInFlight = useRef(false);
+  const pendingAuto = useRef(false);
+
+  function loadLastCloudSave(userId: string) {
+    try {
+      const value = Number(window.localStorage.getItem(lastCloudSaveKey(userId)));
+      setLastCloudSave(Number.isFinite(value) && value > 0 ? value : null);
+    } catch { setLastCloudSave(null); }
+  }
+
+
+
+  const handleSync = useCallback(async function runSync(mode: "auto" | "pull" | "push" = "auto") {
+    if (syncInFlight.current) { if (mode === "auto") pendingAuto.current = true; return; }
+    syncInFlight.current = true;
+    setSyncing(true);
+    try {
+      setSyncStatus("Checking cloud data…");
+      const result = await syncAccount(mode);
+      setSyncStatus(result.message);
+      setVersions(readVersions());
+      if (result.savedAt) setLastCloudSave(result.savedAt);
+      if (result.dirty) pendingAuto.current = true;
+      if (result.reload) window.location.reload();
+    } catch (cause) {
+      setSyncStatus(cause instanceof Error ? cause.message : "Cloud save failed. Your local data is kept.");
+    } finally {
+      syncInFlight.current = false;
+      setSyncing(false);
+      if (pendingAuto.current) { pendingAuto.current = false; void runSync("auto"); }
+    }
+  }, []);
 
   useEffect(() => {
     checkAuthStatus().then((u) => {
       setUser(u);
       if (u) {
+        loadLastCloudSave(u.id);
         void handleSync("auto");
       }
     });
-  }, []);
+  }, [handleSync]);
 
-  async function handleSync(mode: "auto" | "pull" | "push" = "auto") {
-    if (!getAuthToken()) return;
-    setSyncStatus("Syncing with Cloudflare...");
-
-    let localRegions = [];
-    let customPkmn = [];
-    let gimmicksList = [];
-    if (typeof window !== "undefined") {
-      try {
-        const r = window.localStorage.getItem(REGIONS_STORAGE_KEY);
-        if (r) localRegions = JSON.parse(r);
-        const p = window.localStorage.getItem(CUSTOM_POKEMON_STORAGE_KEY);
-        if (p) customPkmn = JSON.parse(p);
-        const g = window.localStorage.getItem(GIMMICKS_STORAGE_KEY);
-        if (g) gimmicksList = JSON.parse(g);
-      } catch {}
-    }
-
-    if (mode === "push") {
-      const res = await pushCloudData({ regions: localRegions, customPokemon: customPkmn, gimmicks: gimmicksList });
-      if (res.success) {
-        setSyncStatus("Pushed to Cloud!");
-      } else {
-        setSyncStatus(`Error: ${res.error}`);
-      }
-      return;
-    }
-
-    const res = await fetchCloudData();
-    if (!res.success || !res.data) {
-      setSyncStatus(`Error: ${res.error || "Fetch failed"}`);
-      return;
-    }
-
-    const cloudRegions = res.data.regions || [];
-    const cloudCustomPokemon = res.data.customPokemon || [];
-    const cloudGimmicks = res.data.gimmicks || [];
-
-    if (mode === "pull" || (mode === "auto" && cloudRegions.length > 0 && localRegions.length === 0)) {
-      if (typeof window !== "undefined") {
-        if (cloudRegions.length > 0) window.localStorage.setItem(REGIONS_STORAGE_KEY, JSON.stringify(cloudRegions));
-        if (cloudCustomPokemon.length > 0) window.localStorage.setItem(CUSTOM_POKEMON_STORAGE_KEY, JSON.stringify(cloudCustomPokemon));
-        if (cloudGimmicks.length > 0) window.localStorage.setItem(GIMMICKS_STORAGE_KEY, JSON.stringify(cloudGimmicks));
-        window.location?.reload();
-      }
-      setSyncStatus("Pulled from Cloud!");
-    } else if (mode === "auto") {
-      const mergedMap = new Map<string, any>();
-      cloudRegions.forEach((r: any) => { if (r.name) mergedMap.set(r.name, r); });
-      localRegions.forEach((r: any) => { if (r.name) mergedMap.set(r.name, r); });
-      const mergedRegions = Array.from(mergedMap.values());
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(REGIONS_STORAGE_KEY, JSON.stringify(mergedRegions));
-      }
-      await pushCloudData({ regions: mergedRegions, customPokemon: customPkmn, gimmicks: gimmicksList });
-      setSyncStatus("Synced!");
-    }
-  }
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      setSyncStatus(hasUnsavedData() ? "Local saving needs a retry." : "Saved locally. Cloud save pending when signed in.");
+      timer = setTimeout(() => {
+        try { saveVersion("Device checkpoint"); setVersions(readVersions()); }
+        catch { setSyncStatus("Saved data could not be added to version history. Export a backup and check browser storage."); return; }
+        void handleSync("auto");
+      }, 1500);
+    };
+    const unsubscribe = subscribeToSaving(schedule);
+    if (typeof window !== "undefined") window.addEventListener("online", schedule);
+    return () => {
+      clearTimeout(timer); unsubscribe();
+      if (typeof window !== "undefined") window.removeEventListener("online", schedule);
+    };
+  }, [handleSync]);
 
   async function handleLogin() {
     if (!username.trim() || !password) {
@@ -110,6 +107,7 @@ export function AccountControl() {
     setLoading(false);
     if (res.success && res.user) {
       setUser(res.user);
+      loadLastCloudSave(res.user.id);
       setSuccess(`Welcome back, ${res.user.username}!`);
       setPassword("");
       void handleSync("auto");
@@ -130,9 +128,10 @@ export function AccountControl() {
     setLoading(false);
     if (res.success && res.user) {
       setUser(res.user);
+      loadLastCloudSave(res.user.id);
       setSuccess(`Account created! Welcome, ${res.user.username}!`);
       setPassword("");
-      void handleSync("push");
+      void handleSync("auto");
     } else {
       setError(res.error || "Registration failed");
     }
@@ -141,6 +140,7 @@ export function AccountControl() {
   async function handleLogout() {
     await logoutUser();
     setUser(null);
+    setLastCloudSave(null);
     setSuccess("Logged out successfully.");
     setSyncStatus("");
   }
@@ -153,6 +153,10 @@ export function AccountControl() {
         onPress={() => {
           setError("");
           setSuccess("");
+          try {
+            setVersions(readVersions());
+            setBackupDue(Date.now() - Number(window.localStorage.getItem(BACKUP_TIME_KEY) ?? 0) > 7 * 86400000);
+          } catch { setSyncStatus("Version history is unavailable. Export a backup before syncing."); }
           setModalVisible(true);
         }}
         style={({ pressed }) => [
@@ -178,9 +182,20 @@ export function AccountControl() {
               {user ? "Cloud Sync Account" : accountMode === "login" ? "Sign In" : "Create Account"}
             </ThemedText>
 
+            <ScrollView style={{maxHeight: 460}} contentContainerStyle={{gap: 12}}>
+            {!user && syncStatus ? <ThemedText type="small">{syncStatus}</ThemedText> : null}
+            {backupDue ? <ThemedText type="small">Backup reminder: download a full backup before clearing browser data. Local version history is erased with site data too.</ThemedText> : null}
+            <Pressable accessibilityRole="button" onPress={() => {downloadBackup(); setBackupDue(false);}} style={styles.secondaryAction}><ThemedText>Export All Data</ThemedText></Pressable>
+            {versions.length ? <ThemedText type="smallBold">Recent versions · up to 10 on this browser</ThemedText> : null}
+            {versions.map(version => <Pressable key={version.id} accessibilityRole="button" style={styles.secondaryAction} disabled={syncing} onPress={() => confirmDeleteAction({title: "Restore earlier version?", message: "This replaces this browser's saved collections and reloads. The current copy is saved to history first.", onConfirm: () => {
+              try { saveVersion("Before restoring a version"); restoreBackup(version.storage); window.location.reload(); }
+              catch {setSyncStatus("Restore failed. Export a backup and check browser storage.");}
+            }})}><ThemedText type="small">Restore {version.label} · {new Date(version.at).toLocaleString()}</ThemedText></Pressable>)}
             {user ? (
               <View style={styles.fieldGroup}>
                 <ThemedText type="smallBold">Signed in as: {user.username}</ThemedText>
+                <ThemedText type="small">{lastCloudSave ? `Last confirmed cloud save: ${new Date(lastCloudSave).toLocaleString()}` : "No confirmed cloud save recorded on this browser."}</ThemedText>
+                <ThemedText type="small">Cloud saving covers regions, custom Pokémon, and gimmicks. Export All Data also protects standalone music, saved Pokémon, and recovery copies.</ThemedText>
                 {syncStatus ? (
                   <ThemedText type="small" themeColor="textSecondary">
                     {syncStatus}
@@ -188,26 +203,29 @@ export function AccountControl() {
                 ) : null}
 
                 <Pressable
-                  onPress={() => void handleSync("push")}
+                  disabled={syncing}
+                  onPress={() => confirmDeleteAction({title: "Use this device's copy?", message: "This replaces cloud regions, custom Pokémon, and gimmicks. A copy of the previous cloud data is saved in local version history first. Export a backup before proceeding.", onConfirm: () => { void handleSync("push"); }})}
                   style={({ pressed }) => [
                     styles.actionButton,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <ThemedText type="smallBold">Push Local Data to Cloud</ThemedText>
+                  <ThemedText type="smallBold">Use This Device’s Copy</ThemedText>
                 </Pressable>
 
                 <Pressable
-                  onPress={() => void handleSync("pull")}
+                  disabled={syncing}
+                  onPress={() => confirmDeleteAction({title: "Use the cloud copy?", message: "This replaces those collections on this device and reloads the app. A local version will be saved first.", onConfirm: () => { void handleSync("pull"); }})}
                   style={({ pressed }) => [
                     styles.secondaryAction,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <ThemedText type="smallBold">Pull Cloud Data to Local</ThemedText>
+                  <ThemedText type="smallBold">Use Cloud Copy</ThemedText>
                 </Pressable>
 
                 <Pressable
+                  disabled={syncing}
                   onPress={() => void handleLogout()}
                   style={({ pressed }) => [
                     styles.dangerButton,
@@ -305,6 +323,7 @@ export function AccountControl() {
               </>
             )}
 
+            </ScrollView>
             <Pressable
               onPress={() => setModalVisible(false)}
               style={({ pressed }) => [

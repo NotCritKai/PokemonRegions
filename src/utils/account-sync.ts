@@ -17,6 +17,7 @@ export interface CloudData {
   customPokemon: any[];
   gimmicks: any[];
   updatedAt: number;
+  syncProtocol?: number;
 }
 
 export function getAuthToken(): string | null {
@@ -152,7 +153,7 @@ export async function fetchCloudData(): Promise<{ success: boolean; error?: stri
   }
 }
 
-export async function pushCloudData(payload: { regions: any[]; customPokemon?: any[]; gimmicks?: any[] }): Promise<{ success: boolean; error?: string; updatedAt?: number }> {
+export async function pushCloudData(payload: { regions: any[]; customPokemon?: any[]; gimmicks?: any[]; expectedUpdatedAt?: number }): Promise<{ success: boolean; error?: string; updatedAt?: number }> {
   const token = getAuthToken();
   if (!token) return { success: false, error: "Not logged in" };
 
