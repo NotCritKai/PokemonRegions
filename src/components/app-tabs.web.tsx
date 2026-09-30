@@ -1,3 +1,4 @@
+import { useHydrated } from "@/hooks/use-hydrated";
 import {
     TabList,
     TabListProps,
@@ -23,16 +24,20 @@ import {
 } from "@/utils/delete-confirmation";
 
 export default function AppTabs() {
+  const theme = useTheme();
   const { width } = useWindowDimensions();
-  const compactNavigation = width < 700;
+  const hydrated = useHydrated();
+  const compactNavigation = !hydrated || width < 700;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [deleteConfirmationsEnabled, setDeletePromptState] = useState(
-    areDeleteConfirmationsEnabled(),
+    true,
   );
   const { mode: appearanceMode, setMode: setAppearanceMode } = useAppAppearance();
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Read browser preferences only after hydration.
+    setDeletePromptState(areDeleteConfirmationsEnabled());
     function closeSettings(event: KeyboardEvent) {
       if (event.key === "Escape") setSettingsOpen(false);
     }
@@ -59,7 +64,7 @@ export default function AppTabs() {
   }
 
   return (
-    <Tabs>
+    <Tabs style={{ flex: 1, backgroundColor: theme.backgroundElement }}>
       {settingsOpen ? (
         <Pressable
           accessibilityLabel="Close settings menu"
@@ -308,7 +313,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderWidth: 0,
     borderBottomWidth: 2,
-    borderBottomColor: "#808080",
+    borderBottomColor: "#343840",
   },
   tabSlot: {
     flex: 1,

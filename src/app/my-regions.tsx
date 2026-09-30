@@ -4663,6 +4663,7 @@ const baseStyles = StyleSheet.create({
     lineHeight: 22,
   },
   emptyImportExportActions: {
+    justifyContent: "center",
     width: "100%",
     maxWidth: 440,
     gap: 12,
@@ -4684,6 +4685,8 @@ const baseStyles = StyleSheet.create({
     gap: 6,
   },
   emptyImportExportButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     minHeight: 46,
     justifyContent: "center",
     alignItems: "center",

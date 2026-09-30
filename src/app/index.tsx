@@ -89,12 +89,14 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     width: "100%",
-    maxWidth: MaxContentWidth,
   },
   scrollView: {
     width: "100%",
   },
   scrollContent: {
+    width: "100%",
+    maxWidth: MaxContentWidth,
+    alignSelf: "center",
     paddingHorizontal: Spacing.four,
     alignItems: "center",
     gap: Spacing.three,

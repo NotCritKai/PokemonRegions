@@ -1,51 +1,36 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useColorScheme as useNativeColorScheme } from "react-native";
+import { useHydrated } from "./use-hydrated";
 
-const APPEARANCE_STORAGE_KEY = "app-appearance-mode";
-
-type AppearanceMode = "system" | "light" | "dark";
-
+export type AppearanceMode = "auto" | "light" | "dark";
+const STORAGE_KEY = "pokemon-regions-appearance";
 interface AppearanceContextType {
-  appearance: AppearanceMode;
+  mode: AppearanceMode;
   colorScheme: "light" | "dark";
-  updateAppearance: (mode: AppearanceMode) => void;
+  setMode: (mode: AppearanceMode) => void;
 }
-
 const AppearanceContext = createContext<AppearanceContextType>({
-  appearance: "system",
-  colorScheme: "light",
-  updateAppearance: () => {},
+  mode: "auto", colorScheme: "light", setMode: () => {},
 });
-
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useNativeColorScheme() ?? "light";
-  const [appearance, setAppearance] = useState<AppearanceMode>("system");
-
+  const nativeScheme = useNativeColorScheme();
+  const systemScheme = nativeScheme === "dark" ? "dark" : "light";
+  const hydrated = useHydrated();
+  const [mode, setModeState] = useState<AppearanceMode>("auto");
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const stored = window.localStorage.getItem(APPEARANCE_STORAGE_KEY) as AppearanceMode | null;
-      if (stored) {
-        setAppearance(stored);
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem("app-appearance-mode");
+      if (stored === "light" || stored === "dark" || stored === "auto" || stored === "system") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate saved browser preference after the shared initial render.
+        setModeState(stored === "system" ? "auto" : stored);
       }
-    }
+    } catch { /* Browser storage can be unavailable; keep the system preference. */ }
   }, []);
-
-  const updateAppearance = (nextMode: AppearanceMode) => {
-    setAppearance(nextMode);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(APPEARANCE_STORAGE_KEY, nextMode);
-    }
+  const setMode = (next: AppearanceMode) => {
+    setModeState(next);
+    try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* Keep the session preference. */ }
   };
-
-  const colorScheme = appearance === "system" ? systemScheme : appearance;
-
-  return (
-    <AppearanceContext.Provider value={{ appearance, colorScheme, updateAppearance }}>
-      {children}
-    </AppearanceContext.Provider>
-  );
+  const colorScheme = !hydrated ? "light" : mode === "auto" ? systemScheme : mode;
+  return <AppearanceContext.Provider value={{mode, colorScheme, setMode}}>{children}</AppearanceContext.Provider>;
 }
-
-export function useAppAppearance() {
-  return useContext(AppearanceContext);
-}
+export function useAppAppearance() { return useContext(AppearanceContext); }

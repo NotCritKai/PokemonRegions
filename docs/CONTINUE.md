@@ -52,3 +52,17 @@ Implemented locally:
 Verification: 32 node tests (23 region/status + 9 cloud engine/history with mocked network), 8 real local Worker/D1/DO tests, frontend/backend TypeScript and full lint pass. Web export passed before final minor checkpoint/validation additions; final build launched again. Browser account panel renders signed-out status, backup reminder and export; screenshot outputs/account-backup-reminder.jpg. No real account credentials used, no live uploads or deployment performed. Real two-device/cloud acceptance remains unverified. Preserve all existing uncommitted edits.
 
 Next: verify final web build completion, review/deploy backend and matching frontend together when authorized, then test real account sync on two devices. Remaining broader UI/live-sharing gaps above still apply. Do not represent local version history as cloud backup or auto sync as already running against the old backend.
+
+
+## September 30 — production hydration error #418
+
+Reproduced #418 on https://pokemonregions.pages.dev/ in browser console. The page recovered through client rendering. Found viewport-dependent initial tab markup: app-tabs.web.tsx rendered a desktop-only Pokemon Regions title and different wrapper based on raw useWindowDimensions during hydration. Added use-hydrated.ts using useSyncExternalStore with false server snapshot/true client snapshot; web tabs and responsive actions now use a consistent initial compact layout, then adapt after hydration.
+
+Restored appearance hook's existing consumer API (mode/setMode, auto/light/dark), deterministic initial light scheme, canonical storage key pokemon-regions-appearance, and migration reading app-appearance-mode/system. Delete confirmation initializes consistently and loads preference in effect. Removed erroneous return {} in its boolean helper. Removed wildcard homepage rewrite from public/_redirects because Expo exports individual route HTML; Pages resolves extensionless route files. Auth/history/date initial states were already deterministic; no blanket mount wrappers or hydration-warning suppression added.
+
+Actual verification: frontend TypeScript, full ESLint, static Expo web export to /tmp/pokemon-hydration-fixed, git diff --check, and all 32 node regression tests passed. Browser reproduced production error, then corrected static homepage loaded without console errors; Dark selected through settings and reloaded without errors; extensionless direct loads of my-regions, my-pokemon, my-gimmicks, my-music also had no console errors. No physical devices or real account sync tested in this turn.
+
+Fix is LOCAL and NOT DEPLOYED. Rebuild/redeploy frontend to Cloudflare Pages to activate, then verify production homepage and direct routes with saved theme. No backend change needed for this hydration fix. Working tree was clean at start of this turn; only this patch is currently uncommitted. Earlier deployment-status notes above may be stale after intervening work; inspect before assuming backend deployment status. No scheduled checks authorized.
+
+
+September 30 layout follow-up: moved homepage max-width from scroll viewport to its content so scrollbar reaches window edge; centered empty-region import/export row and added button padding; themed web Tabs root background and darkened header divider to remove white gap. Preserved prior hydration edits. TypeScript, full ESLint, web export passed. Browser screenshots verified homepage and centered region actions at 1280px, stacked actions at 390px; no console errors. Viewport reset. Not deployed.

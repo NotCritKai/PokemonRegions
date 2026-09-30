@@ -1,1 +1,2 @@
-/*  /index.html  200
+# Expo exports a separate HTML document for each route (web.output: static).
+# Let Cloudflare Pages resolve the matching file; do not rewrite all routes to /index.html.
