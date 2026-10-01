@@ -5,6 +5,7 @@
     "source.sortMembers": "explicit"
   },
   "chat.tools.terminal.autoApprove": {
-    "npm exec": true
+    "npm exec": true,
+    "npx tsc": true
   }
 }

@@ -1,49 +1,58 @@
-import { readRecovery, saveRecovery, recoverRegion, type RecoveryEntry } from "@/utils/region-recovery";
-import { copyText } from "@/utils/clipboard";
 import { useResponsiveActions } from "@/hooks/use-responsive-actions";
-import { Image } from "expo-image";
+import { copyText } from "@/utils/clipboard";
 import { readLocalData, saveLocalData } from "@/utils/local-data";
+import {
+    readRecovery,
+    recoverRegion,
+    saveRecovery,
+    type RecoveryEntry,
+} from "@/utils/region-recovery";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { createElement, useEffect, useRef, useState } from "react";
 import {
+    Alert,
     Animated,
     Linking,
     Modal,
-    Pressable,
     Platform,
+    Pressable,
     ScrollView,
+    Share,
     StyleSheet,
     TextInput,
     View,
-    Share,
+    type TextStyle,
 } from "react-native";
 
 import { getPokemon, type Pokemon } from "@/api/pokemon";
 import {
-  confirmDeleteAction as confirmDeletePrompt,
-} from "@/utils/delete-confirmation";
+    RegionChecklist,
+    regionChecklist,
+} from "@/components/region-checklist";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { RegionChecklist, regionChecklist } from "@/components/region-checklist";
 import { useTheme } from "@/hooks/use-theme";
+import { confirmDeleteAction as confirmDeletePrompt } from "@/utils/delete-confirmation";
 import {
-  getMusicEmbedUri,
-  getMusicProvider,
-  normalizeMusicUri,
+    getMusicEmbedUri,
+    getMusicProvider,
+    normalizeMusicUri,
 } from "@/utils/music";
 import {
-  createCommentResponseLink,
-  createRegionShareLink,
-  decodeSharedRegion,
-  type RegionSharePermission,
-} from "@/utils/region-sharing";
-import {
-  buildLiveShareLink,
-  generateRoomCode,
-  isLiveShareSupported,
-  LiveShareSession,
-  type LiveShareStatus,
+    buildLiveShareLink,
+    generateRoomCode,
+    isLiveShareSupported,
+    LiveShareSession,
+    type LiveShareStatus,
 } from "@/utils/region-peer-share";
+import {
+    createCommentResponseLink,
+    createRegionShareLink,
+    decodeSharedRegion,
+    type RegionSharePermission,
+} from "@/utils/region-sharing";
 
 const APP_STORAGE_VERSION = "v2";
 const REGIONS_STORAGE_KEY = `pokemon-regions-${APP_STORAGE_VERSION}`;
@@ -127,7 +136,6 @@ const biomeMapThemes: Record<
     pathLight: string;
     pathDark: string;
   }
-
 > = {
   Grassland: {
     base: "#6b9f67",
@@ -246,15 +254,56 @@ function ShareGlyph({ color }: { color: string }) {
     <View style={baseStyles.shareGlyph} accessible={false}>
       <View style={[baseStyles.shareLineTop, { backgroundColor: color }]} />
       <View style={[baseStyles.shareLineBottom, { backgroundColor: color }]} />
-      <View style={[baseStyles.shareNode, baseStyles.shareNodeLeft, { backgroundColor: color }]} />
-      <View style={[baseStyles.shareNode, baseStyles.shareNodeTop, { backgroundColor: color }]} />
-      <View style={[baseStyles.shareNode, baseStyles.shareNodeBottom, { backgroundColor: color }]} />
+      <View
+        style={[
+          baseStyles.shareNode,
+          baseStyles.shareNodeLeft,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          baseStyles.shareNode,
+          baseStyles.shareNodeTop,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          baseStyles.shareNode,
+          baseStyles.shareNodeBottom,
+          { backgroundColor: color },
+        ]}
+      />
     </View>
   );
 }
 
 export default function MyRegionsScreen() {
-  const styles = useResponsiveActions(baseStyles, ["regionActions", "footerActions", "emptyImportExportActions", "shareModeOptions", "sharePermissionOptions", "importExportActions", "gymActions", "routeActionRow", "actionRow", "musicTypeOptions", "musicCard"], ["savedRegionName", "actionButton", "gymActionButton", "routeOptionButton", "secondaryAction", "musicDetails"]);
+  const styles = useResponsiveActions(
+    baseStyles,
+    [
+      "regionActions",
+      "footerActions",
+      "emptyImportExportActions",
+      "shareModeOptions",
+      "sharePermissionOptions",
+      "importExportActions",
+      "gymActions",
+      "routeActionRow",
+      "actionRow",
+      "musicTypeOptions",
+      "musicCard",
+    ],
+    [
+      "savedRegionName",
+      "actionButton",
+      "gymActionButton",
+      "routeOptionButton",
+      "secondaryAction",
+      "musicDetails",
+    ],
+  );
   const params = useLocalSearchParams<{
     sharedRegion?: string;
     permission?: string;
@@ -266,24 +315,41 @@ export default function MyRegionsScreen() {
   const [regionName, setRegionName] = useState("");
   const [rivalName, setRivalName] = useState("");
   const [regionType, setRegionType] = useState("");
-  const [creationTemplate, setCreationTemplate] = useState<number | "basic" | null>(null);
+  const [creationTemplate, setCreationTemplate] = useState<
+    number | "basic" | null
+  >(null);
   const [encounterFilter, setEncounterFilter] = useState("");
+  const [musicFilter, setMusicFilter] = useState("");
+  const [gimmickFilter, setGimmickFilter] = useState("");
   const [regionSearch, setRegionSearch] = useState("");
   const [unfinishedOnly, setUnfinishedOnly] = useState(false);
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<number>>(
+    new Set(),
+  );
   const [routeCount, setRouteCount] = useState("");
   const [customRouteCount, setCustomRouteCount] = useState("1");
   const [customRoutesVisible, setCustomRoutesVisible] = useState(false);
   const [routeLimitDraft, setRouteLimitDraft] = useState("");
   const [routeCountError, setRouteCountError] = useState("");
   const [regions, setRegions] = useState<Region[]>([]);
-  const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntry<Region>[]>([]);
+  const [recoveryEntries, setRecoveryEntries] = useState<
+    RecoveryEntry<Region>[]
+  >([]);
   const [recoveryExpanded, setRecoveryExpanded] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState("");
   const [lastDeletedId, setLastDeletedId] = useState<string | null>(null);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only saved data after the server-compatible initial render.
-    try { setRecoveryEntries(readRecovery<Region>()); }
-    catch (error) { setRecoveryMessage(error instanceof Error ? error.message : "Could not read recovery data."); }
+    try {
+      setRecoveryEntries(readRecovery<Region>());
+    } catch (error) {
+      setRecoveryMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not read recovery data.",
+      );
+    }
   }, []);
   const [hasLoadedRegions, setHasLoadedRegions] = useState(false);
   const [editingRegionIndex, setEditingRegionIndex] = useState<number | null>(
@@ -408,26 +474,54 @@ export default function MyRegionsScreen() {
   const [guestCommentDraft, setGuestCommentDraft] = useState("");
   const [guestCommentSent, setGuestCommentSent] = useState(false);
   const [guestEditMessage, setGuestEditMessage] = useState("");
+  const [pendingHostUpdate, setPendingHostUpdate] = useState<Region | null>(
+    null,
+  );
+  const guestSyncBaselineRef = useRef<string | null>(null);
   const theme = useTheme();
   const router = useRouter();
   const openedSharedLink = useRef<string | null>(null);
 
   const regionsRef = useRef(regions);
-  const liveHostRef = useRef<{ index: number; permission: RegionSharePermission } | null>(null);
+  const liveHostRef = useRef<{
+    index: number;
+    permission: RegionSharePermission;
+  } | null>(null);
   useEffect(() => {
     regionsRef.current = regions;
     const host = liveHostRef.current;
     if (host && regions[host.index]) {
-      liveSessionRef.current?.send({ type: "region", region: regions[host.index], permission: host.permission });
+      liveSessionRef.current?.send({
+        type: "region",
+        region: regions[host.index],
+        permission: host.permission,
+      });
     }
   }, [regions]);
 
   function canEditRegion(region: Region | null | undefined) {
-    return Boolean(region && (!region.sharePermission || region.sharePermission === "edit"));
+    return Boolean(
+      region && (!region.sharePermission || region.sharePermission === "edit"),
+    );
+  }
+
+  // Compares only the editable region content, ignoring share/session metadata, so we can tell apart real edits from re-syncs.
+  function getRegionContentSnapshot(region: Region) {
+    const {
+      sharePermission: _sharePermission,
+      sharedComments: _sharedComments,
+      sharedLinkKey: _sharedLinkKey,
+      liveRoomCode: _liveRoomCode,
+      temporary: _temporary,
+      ...content
+    } = region;
+    return JSON.stringify(content);
   }
 
   function canEditContent() {
-    return contentRegionIndex !== null && canEditRegion(regions[contentRegionIndex]);
+    return (
+      contentRegionIndex !== null && canEditRegion(regions[contentRegionIndex])
+    );
   }
 
   function stopLiveShare() {
@@ -438,10 +532,17 @@ export default function MyRegionsScreen() {
     setLiveShareStatus("idle");
     setLiveShareLink("");
     setLiveActivity([]);
+    setPendingHostUpdate(null);
+    guestSyncBaselineRef.current = null;
   }
 
   function startLiveShare() {
-    if (shareRegionIndex === null || !canEditRegion(regions[shareRegionIndex]) || !isLiveShareSupported()) return;
+    if (
+      shareRegionIndex === null ||
+      !canEditRegion(regions[shareRegionIndex]) ||
+      !isLiveShareSupported()
+    )
+      return;
     stopLiveShare();
     const regionIndex = shareRegionIndex;
     const roomCode = generateRoomCode();
@@ -454,7 +555,11 @@ export default function MyRegionsScreen() {
     session.onStatus = (status) => {
       setLiveShareStatus(status);
       if (status === "connected") {
-        session.send({ type: "region", region: regionsRef.current[regionIndex], permission: sharePermission });
+        session.send({
+          type: "region",
+          region: regionsRef.current[regionIndex],
+          permission: sharePermission,
+        });
         setLiveActivity((prev) => [...prev, "Connected. Region sent."]);
       }
       if (status === "closed" || status === "error") {
@@ -465,10 +570,19 @@ export default function MyRegionsScreen() {
       }
     };
     session.onMessage = (message) => {
-      if (message.type === "comment" && sharePermission === "comment" && typeof message.text === "string") {
+      if (
+        message.type === "comment" &&
+        sharePermission === "comment" &&
+        typeof message.text === "string"
+      ) {
         setLiveActivity((prev) => [...prev, `Comment: ${message.text}`]);
       } else if (message.type === "edit" && sharePermission === "edit") {
-        if (!message.region || typeof message.region !== "object" || Array.isArray(message.region)) return;
+        if (
+          !message.region ||
+          typeof message.region !== "object" ||
+          Array.isArray(message.region)
+        )
+          return;
         const [edited] = normalizeImportedRegions([message.region]);
         setRegions((current) => {
           if (!current[regionIndex]) return current;
@@ -493,7 +607,11 @@ export default function MyRegionsScreen() {
     if (!liveShareLink) return;
     if (Platform.OS === "web") {
       const copied = await copyText(liveShareLink);
-      setCopyStatus(copied ? "Live share link copied." : "Copy failed. Select and copy the link below.");
+      setCopyStatus(
+        copied
+          ? "Live share link copied."
+          : "Copy failed. Select and copy the link below.",
+      );
       return;
     }
     try {
@@ -505,7 +623,8 @@ export default function MyRegionsScreen() {
 
   function sendGuestComment() {
     const text = guestCommentDraft.trim();
-    if (!text || liveGuestPermission !== "comment" || !liveSessionRef.current) return;
+    if (!text || liveGuestPermission !== "comment" || !liveSessionRef.current)
+      return;
     const sent = liveSessionRef.current.send({ type: "comment", text });
     if (sent) {
       setGuestCommentDraft("");
@@ -515,9 +634,15 @@ export default function MyRegionsScreen() {
   }
 
   function sendGuestEdits(region: Region) {
-    if (liveGuestPermission !== "edit" || !canEditRegion(region) || !liveSessionRef.current) return;
+    if (
+      liveGuestPermission !== "edit" ||
+      !canEditRegion(region) ||
+      !liveSessionRef.current
+    )
+      return;
     const { liveRoomCode: _omit, ...rest } = region;
     const sent = liveSessionRef.current.send({ type: "edit", region: rest });
+    if (sent) guestSyncBaselineRef.current = getRegionContentSnapshot(region);
     setGuestEditMessage(
       sent ? "Changes sent to the region owner." : "Not connected yet.",
     );
@@ -584,7 +709,8 @@ export default function MyRegionsScreen() {
         championPokemon: Array.isArray(shared.championPokemon)
           ? shared.championPokemon
           : [],
-        mapPositions: (shared.mapPositions as Record<string, MapPosition>) ?? {},
+        mapPositions:
+          (shared.mapPositions as Record<string, MapPosition>) ?? {},
         gimmicks: Array.isArray(shared.gimmicks) ? shared.gimmicks : [],
         music: Array.isArray(shared.music) ? shared.music : [],
         sharePermission: permission,
@@ -641,8 +767,16 @@ export default function MyRegionsScreen() {
     session.onStatus = setLiveShareStatus;
     session.onMessage = (message) => {
       if (message.type !== "region") return;
-      if (!message.region || typeof message.region !== "object" || Array.isArray(message.region)) return;
-      const grantedPermission = message.permission === "edit" || message.permission === "comment" ? message.permission : "view";
+      if (
+        !message.region ||
+        typeof message.region !== "object" ||
+        Array.isArray(message.region)
+      )
+        return;
+      const grantedPermission =
+        message.permission === "edit" || message.permission === "comment"
+          ? message.permission
+          : "view";
       setLiveGuestPermission(grantedPermission);
       const shared = message.region as Record<string, unknown>;
       const importedRegion = {
@@ -666,7 +800,8 @@ export default function MyRegionsScreen() {
         championPokemon: Array.isArray(shared.championPokemon)
           ? shared.championPokemon
           : [],
-        mapPositions: (shared.mapPositions as Record<string, MapPosition>) ?? {},
+        mapPositions:
+          (shared.mapPositions as Record<string, MapPosition>) ?? {},
         gimmicks: Array.isArray(shared.gimmicks) ? shared.gimmicks : [],
         music: Array.isArray(shared.music) ? shared.music : [],
         sharePermission: grantedPermission,
@@ -678,15 +813,27 @@ export default function MyRegionsScreen() {
         const existingIndex = current.findIndex(
           (region) => region.liveRoomCode === roomCode,
         );
-        if (existingIndex >= 0) {
-          const next = [...current];
-          next[existingIndex] = {
-            ...importedRegion,
-            temporary: current[existingIndex].temporary,
-          };
-          return next;
+        if (existingIndex < 0) {
+          guestSyncBaselineRef.current =
+            getRegionContentSnapshot(importedRegion);
+          return [...current, importedRegion];
         }
-        return [...current, importedRegion];
+        const localSnapshot = getRegionContentSnapshot(current[existingIndex]);
+        const hasUnsentEdits =
+          guestSyncBaselineRef.current !== null &&
+          guestSyncBaselineRef.current !== localSnapshot;
+        if (hasUnsentEdits) {
+          // Don't silently overwrite edits the guest hasn't sent yet; let them choose.
+          setPendingHostUpdate(importedRegion);
+          return current;
+        }
+        guestSyncBaselineRef.current = getRegionContentSnapshot(importedRegion);
+        const next = [...current];
+        next[existingIndex] = {
+          ...importedRegion,
+          temporary: current[existingIndex].temporary,
+        };
+        return next;
       });
     };
     liveSessionRef.current = session;
@@ -696,6 +843,8 @@ export default function MyRegionsScreen() {
       if (liveSessionRef.current === session) liveSessionRef.current = null;
       setLiveGuestPermission(null);
       setLiveShareStatus("idle");
+      setPendingHostUpdate(null);
+      guestSyncBaselineRef.current = null;
     };
   }, [hasLoadedRegions, params.live, params.permission]);
 
@@ -773,12 +922,16 @@ export default function MyRegionsScreen() {
 
   function openGimmickSection() {
     loadGimmicks();
-    setGimmicksExpanded((expanded) => !expanded);
+    toggleContentSection("gimmicks");
   }
 
   function toggleGimmick(name: string) {
     if (!canEditContent()) return;
-    if (selectedGimmicks.includes(name) && !saveRecoverySnapshot("Before gimmick removal")) return;
+    if (
+      selectedGimmicks.includes(name) &&
+      !saveRecoverySnapshot("Before gimmick removal")
+    )
+      return;
     const nextSelection = selectedGimmicks.includes(name)
       ? selectedGimmicks.filter((gimmickName) => gimmickName !== name)
       : [...selectedGimmicks, name];
@@ -804,7 +957,10 @@ export default function MyRegionsScreen() {
       category: newGimmickCategory.trim(),
       description: newGimmickDescription.trim(),
     };
-    const next = [...availableGimmicks.filter((item) => item.name !== name), gimmick];
+    const next = [
+      ...availableGimmicks.filter((item) => item.name !== name),
+      gimmick,
+    ];
     saveLocalData(GIMMICKS_STORAGE_KEY, JSON.stringify(next));
     setAvailableGimmicks(next);
     const nextSelection = selectedGimmicks.includes(name)
@@ -835,7 +991,9 @@ export default function MyRegionsScreen() {
     setMusicEntries(nextMusic);
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex && canEditRegion(region) ? { ...region, music: nextMusic } : region,
+        index === contentRegionIndex && canEditRegion(region)
+          ? { ...region, music: nextMusic }
+          : region,
       ),
     );
   }
@@ -915,10 +1073,12 @@ export default function MyRegionsScreen() {
 
         if (storedCustom) {
           try {
-            const parsed = JSON.parse(storedCustom) as Partial<Pokemon & {
-              imageUrl?: string;
-              isCustom?: boolean;
-            }>[];
+            const parsed = JSON.parse(storedCustom) as Partial<
+              Pokemon & {
+                imageUrl?: string;
+                isCustom?: boolean;
+              }
+            >[];
             customPokemon = parsed
               .filter(
                 (entry): entry is Partial<Pokemon> & { name: string } =>
@@ -928,7 +1088,8 @@ export default function MyRegionsScreen() {
                 name: entry.name,
                 url: entry.imageUrl ?? entry.url ?? "",
                 types: Array.isArray(entry.types) ? entry.types : [],
-                generation: typeof entry.generation === "number" ? entry.generation : 9,
+                generation:
+                  typeof entry.generation === "number" ? entry.generation : 9,
                 imageUrl: entry.imageUrl ?? entry.url ?? "",
                 isCustom: true,
               }));
@@ -1012,14 +1173,18 @@ export default function MyRegionsScreen() {
   }
 
   function acceptSharedRegion(index: number) {
-    setRegions((current) => current.map((region, regionIndex) =>
-      regionIndex === index ? { ...region, temporary: false } : region,
-    ));
+    setRegions((current) =>
+      current.map((region, regionIndex) =>
+        regionIndex === index ? { ...region, temporary: false } : region,
+      ),
+    );
   }
 
   function dismissSharedRegion(index: number) {
     stopLiveShare();
-    setRegions((current) => current.filter((_, regionIndex) => regionIndex !== index));
+    setRegions((current) =>
+      current.filter((_, regionIndex) => regionIndex !== index),
+    );
     setContentMenuVisible(false);
     setContentRegionIndex(null);
     setSharedPermission(null);
@@ -1037,6 +1202,8 @@ export default function MyRegionsScreen() {
     setMapPositions(positions);
     mapPositionsRef.current = positions;
     setEncounterFilter("");
+    setMusicFilter("");
+    setGimmickFilter("");
     setRoutesExpanded(false);
     setGymsExpanded(false);
     setEliteFourExpanded(false);
@@ -1059,10 +1226,10 @@ export default function MyRegionsScreen() {
           ? gymsExpanded
           : section === "eliteFour"
             ? eliteFourExpanded
-              : section === "gimmicks"
-                ? gimmicksExpanded
-                : section === "music"
-                  ? musicExpanded
+            : section === "gimmicks"
+              ? gimmicksExpanded
+              : section === "music"
+                ? musicExpanded
                 : mapExpanded;
 
     if (!isOpen) {
@@ -1112,8 +1279,15 @@ export default function MyRegionsScreen() {
 
   function validateRouteCount(value: string, minimum: number) {
     const count = Number(value);
-    if (!/^\d+$/.test(value) || !Number.isSafeInteger(count) || count < Math.max(1, minimum) || count > 999) {
-      setRouteCountError(`Enter a whole number from ${Math.max(1, minimum)} to 999. Existing routes are never removed by changing the limit.`);
+    if (
+      !/^\d+$/.test(value) ||
+      !Number.isSafeInteger(count) ||
+      count < Math.max(1, minimum) ||
+      count > 999
+    ) {
+      setRouteCountError(
+        `Enter a whole number from ${Math.max(1, minimum)} to 999. Existing routes are never removed by changing the limit.`,
+      );
       return false;
     }
     setRouteCountError("");
@@ -1122,9 +1296,20 @@ export default function MyRegionsScreen() {
 
   function updateRouteLimit() {
     if (!canEditContent() || contentRegionIndex === null) return;
-    if (!validateRouteCount(routeLimitDraft, regions[contentRegionIndex].routeNames.length)) return;
-    setRegions(current => current.map((region, index) => index === contentRegionIndex && canEditRegion(region)
-      ? { ...region, routes: String(Number(routeLimitDraft)) } : region));
+    if (
+      !validateRouteCount(
+        routeLimitDraft,
+        regions[contentRegionIndex].routeNames.length,
+      )
+    )
+      return;
+    setRegions((current) =>
+      current.map((region, index) =>
+        index === contentRegionIndex && canEditRegion(region)
+          ? { ...region, routes: String(Number(routeLimitDraft)) }
+          : region,
+      ),
+    );
   }
 
   function addRoute(amount?: number) {
@@ -1133,13 +1318,24 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
 
         const routeNames = region.routeNames ?? [];
         const routeLimit = Number(region.routes);
-        if (!Number.isSafeInteger(routeLimit) || routeLimit < 1 || routeLimit > 999 || routeNames.length >= routeLimit) return region;
-        const target = amount === undefined ? routeLimit : Math.min(routeLimit, routeNames.length + amount);
-        if (!Number.isSafeInteger(target) || target <= routeNames.length) return region;
+        if (
+          !Number.isSafeInteger(routeLimit) ||
+          routeLimit < 1 ||
+          routeLimit > 999 ||
+          routeNames.length >= routeLimit
+        )
+          return region;
+        const target =
+          amount === undefined
+            ? routeLimit
+            : Math.min(routeLimit, routeNames.length + amount);
+        if (!Number.isSafeInteger(target) || target <= routeNames.length)
+          return region;
 
         const nextNames = [...routeNames];
         for (let number = 1; nextNames.length < target; number += 1) {
@@ -1151,36 +1347,67 @@ export default function MyRegionsScreen() {
     );
   }
 
-  function organizeContent(kind: "route" | "gym", source: number, action: "duplicate" | "up" | "down") {
+  function organizeContent(
+    kind: "route" | "gym",
+    source: number,
+    action: "duplicate" | "up" | "down",
+  ) {
     if (!canEditContent() || contentRegionIndex === null) return;
-    setRegions(current => current.map((region, index) => {
-      if (index !== contentRegionIndex || !canEditRegion(region)) return region;
-      const names = [...(kind === "route" ? region.routeNames : region.gyms)];
-      if (!names[source]) return region;
-      const details = [...region.gymDetails];
-      const teams = [...region.gymPokemon];
-      if (action === "duplicate") {
-        if (names.length >= (kind === "route" ? Number(region.routes) : 8)) return region;
-        let suffix = 2;
-        let name = `${names[source]} (Copy)`;
-        while (names.includes(name)) name = `${names[source]} (Copy ${suffix++})`;
-        names.push(name);
-        if (kind === "route") return { ...region, routeNames: names,
-          routeDetails: { ...region.routeDetails, [name]: { ...region.routeDetails[names[source]] } },
-          routePokemon: { ...region.routePokemon, [name]: (region.routePokemon[names[source]] ?? []).map(entry => ({ ...entry })) } };
-        details.push({ ...region.gymDetails[source] });
-        teams.push((region.gymPokemon[source] ?? []).map(entry => ({ ...entry, moves: [...entry.moves] })));
-      } else {
-        const target = source + (action === "up" ? -1 : 1);
-        if (target < 0 || target >= names.length) return region;
-        [names[source], names[target]] = [names[target], names[source]];
-        if (kind === "gym") {
-          [details[source], details[target]] = [details[target], details[source]];
-          [teams[source], teams[target]] = [teams[target], teams[source]];
+    setRegions((current) =>
+      current.map((region, index) => {
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
+        const names = [...(kind === "route" ? region.routeNames : region.gyms)];
+        if (!names[source]) return region;
+        const details = [...region.gymDetails];
+        const teams = [...region.gymPokemon];
+        if (action === "duplicate") {
+          if (names.length >= (kind === "route" ? Number(region.routes) : 8))
+            return region;
+          let suffix = 2;
+          let name = `${names[source]} (Copy)`;
+          while (names.includes(name))
+            name = `${names[source]} (Copy ${suffix++})`;
+          names.push(name);
+          if (kind === "route")
+            return {
+              ...region,
+              routeNames: names,
+              routeDetails: {
+                ...region.routeDetails,
+                [name]: { ...region.routeDetails[names[source]] },
+              },
+              routePokemon: {
+                ...region.routePokemon,
+                [name]: (region.routePokemon[names[source]] ?? []).map(
+                  (entry) => ({ ...entry }),
+                ),
+              },
+            };
+          details.push({ ...region.gymDetails[source] });
+          teams.push(
+            (region.gymPokemon[source] ?? []).map((entry) => ({
+              ...entry,
+              moves: [...entry.moves],
+            })),
+          );
+        } else {
+          const target = source + (action === "up" ? -1 : 1);
+          if (target < 0 || target >= names.length) return region;
+          [names[source], names[target]] = [names[target], names[source]];
+          if (kind === "gym") {
+            [details[source], details[target]] = [
+              details[target],
+              details[source],
+            ];
+            [teams[source], teams[target]] = [teams[target], teams[source]];
+          }
         }
-      }
-      return kind === "route" ? { ...region, routeNames: names } : { ...region, gyms: names, gymDetails: details, gymPokemon: teams };
-    }));
+        return kind === "route"
+          ? { ...region, routeNames: names }
+          : { ...region, gyms: names, gymDetails: details, gymPokemon: teams };
+      }),
+    );
   }
 
   function removeRoute(routeIndex: number) {
@@ -1190,7 +1417,8 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
 
         const routeName = region.routeNames[routeIndex];
         const routePokemon = { ...region.routePokemon };
@@ -1198,8 +1426,9 @@ export default function MyRegionsScreen() {
 
         return {
           ...region,
-          routeNames: region.routeNames
-            .filter((_, currentIndex) => currentIndex !== routeIndex),
+          routeNames: region.routeNames.filter(
+            (_, currentIndex) => currentIndex !== routeIndex,
+          ),
           routePokemon,
           routeDetails: Object.fromEntries(
             region.routeNames
@@ -1225,7 +1454,8 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
 
         const gyms = region.gyms ?? [];
         const numberToAdd = Math.min(amount, 8 - gyms.length);
@@ -1362,7 +1592,8 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
         if (teamKind === "gym" && teamIndex !== null) {
           const gymPokemon = [...region.gymPokemon];
           gymPokemon[teamIndex] = savedTeam;
@@ -1386,7 +1617,8 @@ export default function MyRegionsScreen() {
     const name = gymName.trim() || `Gym ${editingGymIndex + 1}`;
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
         const nextGymDetails = [...region.gymDetails];
         nextGymDetails[editingGymIndex] = gymDetails;
         return {
@@ -1408,7 +1640,8 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
 
         return {
           ...region,
@@ -1476,7 +1709,8 @@ export default function MyRegionsScreen() {
 
       setRegions((currentRegions) =>
         currentRegions.map((region, index) => {
-          if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+          if (index !== contentRegionIndex || !canEditRegion(region))
+            return region;
 
           return eliteCreationKind === "eliteFour"
             ? {
@@ -1509,7 +1743,9 @@ export default function MyRegionsScreen() {
       const name = eliteMemberName.trim() || "Champion";
       setRegions((currentRegions) =>
         currentRegions.map((region, index) =>
-          index === contentRegionIndex && canEditRegion(region) ? { ...region, champion: name } : region,
+          index === contentRegionIndex && canEditRegion(region)
+            ? { ...region, champion: name }
+            : region,
         ),
       );
     }
@@ -1524,7 +1760,8 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) => {
-        if (index !== contentRegionIndex || !canEditRegion(region)) return region;
+        if (index !== contentRegionIndex || !canEditRegion(region))
+          return region;
 
         return {
           ...region,
@@ -1550,7 +1787,9 @@ export default function MyRegionsScreen() {
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
-        index === contentRegionIndex && canEditRegion(region) ? { ...region, champion: null } : region,
+        index === contentRegionIndex && canEditRegion(region)
+          ? { ...region, champion: null }
+          : region,
       ),
     );
   }
@@ -1563,8 +1802,8 @@ export default function MyRegionsScreen() {
     const jitterY = ((index * 53) % 15) - 7;
 
     return {
-      x: Math.max(8, Math.min(390, 10 + column * 76 + jitterX)),
-      y: Math.max(34, Math.min(462, 34 + row * 70 + jitterY)),
+      x: Math.max(8, 10 + column * 76 + jitterX),
+      y: Math.max(34, 34 + row * 70 + jitterY),
     };
   }
 
@@ -1586,19 +1825,33 @@ export default function MyRegionsScreen() {
     return getDefaultMapPosition(index);
   }
 
-  function getRouteConnectorStyle(from: MapPosition, to: MapPosition) {
+  function getRoadSegmentStyle(from: MapPosition, to: MapPosition) {
+    const deltaX = to.x - from.x;
+    const deltaY = to.y - from.y;
+    const length = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+
+    return {
+      left: from.x,
+      top: from.y - 8,
+      width: length,
+      transform: [{ rotate: `${Math.atan2(deltaY, deltaX)}rad` }],
+    };
+  }
+
+  function getRoadSegments(from: MapPosition, to: MapPosition) {
     const fromCenter = { x: from.x + 46, y: from.y + 31 };
     const toCenter = { x: to.x + 46, y: to.y + 31 };
     const deltaX = toCenter.x - fromCenter.x;
     const deltaY = toCenter.y - fromCenter.y;
-    const length = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+    // Bend the road around a corner instead of cutting a long diagonal when a route wraps far away.
+    const needsBend = Math.abs(deltaX) > 160 && Math.abs(deltaY) > 20;
+    if (!needsBend) return [getRoadSegmentStyle(fromCenter, toCenter)];
 
-    return {
-      left: fromCenter.x,
-      top: fromCenter.y - 7,
-      width: length,
-      transform: [{ rotate: `${Math.atan2(deltaY, deltaX)}rad` }],
-    };
+    const bend = { x: fromCenter.x, y: toCenter.y };
+    return [
+      getRoadSegmentStyle(fromCenter, bend),
+      getRoadSegmentStyle(bend, toCenter),
+    ];
   }
 
   function startMapDrag(
@@ -1626,20 +1879,8 @@ export default function MyRegionsScreen() {
       const nextPositions = {
         ...currentPositions,
         [drag.id]: {
-          x: Math.max(
-            8,
-            Math.min(
-              390,
-              drag.origin.x + event.nativeEvent.pageX - drag.startX,
-            ),
-          ),
-          y: Math.max(
-            8,
-            Math.min(
-              462,
-              drag.origin.y + event.nativeEvent.pageY - drag.startY,
-            ),
-          ),
+          x: Math.max(8, drag.origin.x + event.nativeEvent.pageX - drag.startX),
+          y: Math.max(8, drag.origin.y + event.nativeEvent.pageY - drag.startY),
         },
       };
       mapPositionsRef.current = nextPositions;
@@ -1690,7 +1931,16 @@ export default function MyRegionsScreen() {
 
   function createRegion() {
     const name = regionName.trim();
-    if (!name || !validateRouteCount(routeCount, typeof creationTemplate === "number" ? regions[creationTemplate]?.routeNames.length ?? 0 : 0)) return;
+    if (
+      !name ||
+      !validateRouteCount(
+        routeCount,
+        typeof creationTemplate === "number"
+          ? (regions[creationTemplate]?.routeNames.length ?? 0)
+          : 0,
+      )
+    )
+      return;
 
     setRegions((currentRegions) => [
       ...currentRegions,
@@ -1712,26 +1962,61 @@ export default function MyRegionsScreen() {
         mapPositions: {},
         gimmicks: [],
         music: [],
-        ...((creationTemplate === "basic" ? {
-          gyms: Array.from({length: 8}, (_, index) => `Gym ${index + 1}`),
-          gymDetails: Array.from({length: 8}, () => ({leader: "", specialty: "", badge: "", levelCap: "", reward: "", puzzle: ""})),
-          gymPokemon: Array.from({length: 8}, () => []),
-        } : typeof creationTemplate === "number" && regions[creationTemplate] ? (() => {
-          const template = JSON.parse(JSON.stringify(regions[creationTemplate])) as Region;
-          return {routeNames: template.routeNames, routePokemon: template.routePokemon, routeDetails: template.routeDetails,
-            gyms: template.gyms, gymDetails: template.gymDetails, gymPokemon: template.gymPokemon,
-            eliteFour: template.eliteFour, eliteFourPokemon: template.eliteFourPokemon, champion: template.champion,
-            championPokemon: template.championPokemon, mapPositions: template.mapPositions, gimmicks: template.gimmicks, music: template.music};
-        })() : {}) as Partial<Region>),
+        ...((creationTemplate === "basic"
+          ? {
+              gyms: Array.from({ length: 8 }, (_, index) => `Gym ${index + 1}`),
+              gymDetails: Array.from({ length: 8 }, () => ({
+                leader: "",
+                specialty: "",
+                badge: "",
+                levelCap: "",
+                reward: "",
+                puzzle: "",
+              })),
+              gymPokemon: Array.from({ length: 8 }, () => []),
+            }
+          : typeof creationTemplate === "number" && regions[creationTemplate]
+            ? (() => {
+                const template = JSON.parse(
+                  JSON.stringify(regions[creationTemplate]),
+                ) as Region;
+                return {
+                  routeNames: template.routeNames,
+                  routePokemon: template.routePokemon,
+                  routeDetails: template.routeDetails,
+                  gyms: template.gyms,
+                  gymDetails: template.gymDetails,
+                  gymPokemon: template.gymPokemon,
+                  eliteFour: template.eliteFour,
+                  eliteFourPokemon: template.eliteFourPokemon,
+                  champion: template.champion,
+                  championPokemon: template.championPokemon,
+                  mapPositions: template.mapPositions,
+                  gimmicks: template.gimmicks,
+                  music: template.music,
+                };
+              })()
+            : {}) as Partial<Region>),
       },
     ]);
     setMenuVisible(false);
   }
 
   function saveRegion() {
-    if (editingRegionIndex === null || !canEditRegion(regions[editingRegionIndex])) return;
+    if (
+      editingRegionIndex === null ||
+      !canEditRegion(regions[editingRegionIndex])
+    )
+      return;
     const name = regionName.trim();
-    if (!name || !validateRouteCount(routeCount, regions[editingRegionIndex].routeNames.length)) return;
+    if (
+      !name ||
+      !validateRouteCount(
+        routeCount,
+        regions[editingRegionIndex].routeNames.length,
+      )
+    )
+      return;
 
     setRegions((currentRegions) =>
       currentRegions.map((region, index) =>
@@ -1786,7 +2071,17 @@ export default function MyRegionsScreen() {
       (sum, entry) => sum + Number(entry.percentage || 0),
       0,
     );
-    if (!Number.isFinite(total) || Math.abs(total - 100) > 0.001 || selectedRoutePokemon.some((entry) => !entry.name || !Number.isFinite(Number(entry.percentage)) || Number(entry.percentage) < 0 || Number(entry.percentage) > 100)) {
+    if (
+      !Number.isFinite(total) ||
+      Math.abs(total - 100) > 0.001 ||
+      selectedRoutePokemon.some(
+        (entry) =>
+          !entry.name ||
+          !Number.isFinite(Number(entry.percentage)) ||
+          Number(entry.percentage) < 0 ||
+          Number(entry.percentage) > 100,
+      )
+    ) {
       setPercentageError(true);
       return;
     }
@@ -1813,56 +2108,92 @@ export default function MyRegionsScreen() {
     setRouteContentMenuVisible(false);
   }
 
-  function archiveRegion(index: number, kind: "region" | "snapshot", description?: string) {
+  function archiveRegion(
+    index: number,
+    kind: "region" | "snapshot",
+    description?: string,
+  ) {
     const region = regions[index];
     if (!region) return null;
     try {
-      const previous = typeof window === "undefined" ? recoveryEntries : readRecovery<Region>();
+      const previous =
+        typeof window === "undefined"
+          ? recoveryEntries
+          : readRecovery<Region>();
       const entry: RecoveryEntry<Region> = {
-        id: generateRoomCode(), name: description ? `${region.name} — ${description}` : region.name,
-        region: JSON.parse(JSON.stringify(region)), index,
-        deletedAt: new Date().toISOString(), kind,
+        id: generateRoomCode(),
+        name: description ? `${region.name} — ${description}` : region.name,
+        region: JSON.parse(JSON.stringify(region)),
+        index,
+        deletedAt: new Date().toISOString(),
+        kind,
       };
       const next = [entry, ...previous];
       if (typeof window !== "undefined" && !saveRecovery(next)) {
-        setRecoveryMessage("Deletion cancelled: the recovery copy could not be saved. Free browser storage and retry.");
+        setRecoveryMessage(
+          "Deletion cancelled: the recovery copy could not be saved. Free browser storage and retry.",
+        );
         return null;
       }
       setRecoveryEntries(next);
       setRecoveryMessage("");
       return entry.id;
     } catch {
-      setRecoveryMessage("Deletion cancelled: recovery storage could not be read. Export a backup first.");
+      setRecoveryMessage(
+        "Deletion cancelled: recovery storage could not be read. Export a backup first.",
+      );
       return null;
     }
   }
 
   function saveRecoverySnapshot(description: string) {
-    return contentRegionIndex !== null && archiveRegion(contentRegionIndex, "snapshot", description) !== null;
+    return (
+      contentRegionIndex !== null &&
+      archiveRegion(contentRegionIndex, "snapshot", description) !== null
+    );
   }
 
   function restoreRecoveryEntry(id: string) {
     const entry = recoveryEntries.find((item) => item.id === id);
     if (!entry) return;
     const next = recoverRegion(regions, entry);
-    if (next === regions && !regions.some((region) => region.recoveryId === id)) {
-      setRecoveryMessage("This shared region is already saved. Its recovery copy has been kept.");
+    if (
+      next === regions &&
+      !regions.some((region) => region.recoveryId === id)
+    ) {
+      setRecoveryMessage(
+        "This shared region is already saved. Its recovery copy has been kept.",
+      );
       return;
     }
     // Save the restored region first. Keep recovery if either write fails.
-    if (typeof window !== "undefined" && !saveLocalData(REGIONS_STORAGE_KEY, JSON.stringify(next.filter((region) => !region.temporary)))) {
-      setRecoveryMessage("Restore could not be saved. Your recovery copy is still available.");
+    if (
+      typeof window !== "undefined" &&
+      !saveLocalData(
+        REGIONS_STORAGE_KEY,
+        JSON.stringify(next.filter((region) => !region.temporary)),
+      )
+    ) {
+      setRecoveryMessage(
+        "Restore could not be saved. Your recovery copy is still available.",
+      );
       return;
     }
     setRegions(next);
     const remaining = recoveryEntries.filter((item) => item.id !== id);
     if (typeof window !== "undefined" && !saveRecovery(remaining)) {
-      setRecoveryMessage("Region restored. Recovery cleanup could not be saved; retrying Restore will not duplicate it.");
+      setRecoveryMessage(
+        "Region restored. Recovery cleanup could not be saved; retrying Restore will not duplicate it.",
+      );
       return;
     }
     setRecoveryEntries(remaining);
     setLastDeletedId(null);
-    setRecoveryMessage(entry.kind === "snapshot" ? "Recovered a separate region copy; your later edits are unchanged." : "Region restored.");
+    setRecoveryMessage(
+      entry.kind === "snapshot"
+        ? "Recovered a separate region copy; your later edits are unchanged."
+        : "Region restored.",
+    );
   }
 
   function removeSavedRegion(index: number) {
@@ -1873,7 +2204,9 @@ export default function MyRegionsScreen() {
     stopLiveShare();
     setLiveGuestPermission(null);
     setLastDeletedId(recoveryId);
-    setRegions((current) => current.filter((_, regionIndex) => regionIndex !== index));
+    setRegions((current) =>
+      current.filter((_, regionIndex) => regionIndex !== index),
+    );
     setMenuVisible(false);
     setContentMenuVisible(false);
     setContentRegionIndex(null);
@@ -1881,6 +2214,24 @@ export default function MyRegionsScreen() {
     // Clear the link so deleting a saved copy does not immediately import it again.
     router.replace("/my-regions");
     setSharedPermission(null);
+  }
+
+  function removeSavedRegions(indexes: Set<number>) {
+    if (!indexes.size) return;
+    let lastRecoveryId: string | null = null;
+    for (const index of indexes) {
+      const recoveryId = archiveRegion(index, "region");
+      if (recoveryId) lastRecoveryId = recoveryId;
+    }
+    if (!lastRecoveryId) return;
+    stopLiveShare();
+    setLiveGuestPermission(null);
+    setLastDeletedId(lastRecoveryId);
+    setRegions((current) =>
+      current.filter((_, regionIndex) => !indexes.has(regionIndex)),
+    );
+    setSelectedForDelete(new Set());
+    setBulkSelectMode(false);
   }
 
   function undoRegionDeletion() {
@@ -1893,14 +2244,12 @@ export default function MyRegionsScreen() {
 
   function confirmRegionDelete() {
     if (editingRegionIndex === null) return;
-    confirmDeletePrompt(
-      {
-        title: "Delete region?",
-        message:
-          "This will remove the region and all of its saved route, gym, and leader data.",
-        onConfirm: deleteRegion,
-      },
-    );
+    confirmDeletePrompt({
+      title: "Delete region?",
+      message:
+        "This will remove the region and all of its saved route, gym, and leader data.",
+      onConfirm: deleteRegion,
+    });
   }
 
   function openExportModal() {
@@ -1930,9 +2279,11 @@ export default function MyRegionsScreen() {
   }
 
   function normalizeImportedRegions(rawInput: unknown): Region[] {
-    const payload =
-      Array.isArray(rawInput) ? rawInput :
-      rawInput && typeof rawInput === "object" && Array.isArray((rawInput as { regions?: unknown }).regions)
+    const payload = Array.isArray(rawInput)
+      ? rawInput
+      : rawInput &&
+          typeof rawInput === "object" &&
+          Array.isArray((rawInput as { regions?: unknown }).regions)
         ? (rawInput as { regions: unknown[] }).regions
         : [];
 
@@ -1950,7 +2301,10 @@ export default function MyRegionsScreen() {
         name: typeof region.name === "string" ? region.name : "",
         rivalName: typeof region.rivalName === "string" ? region.rivalName : "",
         type: typeof region.type === "string" ? region.type : "",
-        routes: typeof region.routes === "string" ? region.routes : String(region.routes ?? ""),
+        routes:
+          typeof region.routes === "string"
+            ? region.routes
+            : String(region.routes ?? ""),
         routeNames: Array.isArray(region.routeNames) ? region.routeNames : [],
         routePokemon:
           region.routePokemon && typeof region.routePokemon === "object"
@@ -1961,9 +2315,7 @@ export default function MyRegionsScreen() {
             ? (region.routeDetails as Record<string, RouteDetails>)
             : {},
         gyms: Array.isArray(region.gyms) ? region.gyms : [],
-        gymDetails: Array.isArray(region.gymDetails)
-          ? region.gymDetails
-          : [],
+        gymDetails: Array.isArray(region.gymDetails) ? region.gymDetails : [],
         gymPokemon: Array.isArray(region.gymPokemon) ? region.gymPokemon : [],
         eliteFour: Array.isArray(region.eliteFour) ? region.eliteFour : [],
         eliteFourPokemon: Array.isArray(region.eliteFourPokemon)
@@ -1986,27 +2338,51 @@ export default function MyRegionsScreen() {
     });
   }
 
-  function importRegions() {
+  function importRegions(mode: "replace" | "merge") {
     if (!importText.trim()) {
       setImportError("Paste a region export before importing.");
       return;
     }
 
+    let importedRegions: Region[];
     try {
       const parsed = JSON.parse(importText) as unknown;
-      const nextRegions = normalizeImportedRegions(parsed);
-      stopLiveShare();
-      setRegions(nextRegions);
-      setImportExportVisible(false);
-      setImportText("");
-      setImportError("");
+      importedRegions = normalizeImportedRegions(parsed);
     } catch (error) {
       setImportError(
         error instanceof Error
           ? `Import failed: ${error.message}`
           : "Import failed. Check that the file is a Pokemon Regions JSON export.",
       );
+      return;
     }
+
+    const nextRegions =
+      mode === "merge" ? [...regions, ...importedRegions] : importedRegions;
+
+    const applyImport = () => {
+      stopLiveShare();
+      setRegions(nextRegions);
+      setImportExportVisible(false);
+      setImportText("");
+      setImportError("");
+    };
+
+    if (mode === "merge") {
+      applyImport();
+      return;
+    }
+
+    const title = "Replace all regions?";
+    const message = `This will replace all ${regions.length} region(s) currently saved on this device with the ${nextRegions.length} region(s) from this import. This cannot be undone.`;
+    if (Platform.OS === "web") {
+      if (window.confirm(`${title}\n\n${message}`)) applyImport();
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Replace", style: "destructive", onPress: applyImport },
+    ]);
   }
 
   function uploadRegionsFromFile(file: File) {
@@ -2040,7 +2416,11 @@ export default function MyRegionsScreen() {
 
   async function copyExportData() {
     const copied = await copyText(exportText);
-    setImportError(copied ? "Export copied." : "Copy failed. Select the export text above or download the file.");
+    setImportError(
+      copied
+        ? "Export copied."
+        : "Copy failed. Select the export text above or download the file.",
+    );
   }
 
   function downloadExportData() {
@@ -2068,7 +2448,11 @@ export default function MyRegionsScreen() {
     setManualShareLink(link);
     if (Platform.OS === "web") {
       const copied = await copyText(link);
-      setCopyStatus(copied ? "Share link copied." : "Copy failed. Select and copy the link below.");
+      setCopyStatus(
+        copied
+          ? "Share link copied."
+          : "Copy failed. Select and copy the link below.",
+      );
       return;
     }
 
@@ -2088,7 +2472,9 @@ export default function MyRegionsScreen() {
   }
 
   async function sendCommentToOwner() {
-    const sharedRegion = regions.find((region) => region.sharedLinkKey === openedSharedLink.current);
+    const sharedRegion = regions.find(
+      (region) => region.sharedLinkKey === openedSharedLink.current,
+    );
     if (!sharedComment || !sharedRegion) return;
     const responseLink = createCommentResponseLink(sharedRegion, sharedComment);
     if (!responseLink) return;
@@ -2096,9 +2482,11 @@ export default function MyRegionsScreen() {
     setCommentResponseLink(responseLink);
     if (Platform.OS === "web") {
       const copied = await copyText(responseLink);
-      setCommentSentMessage(copied
-        ? "Comment response link copied. Send it to the region owner."
-        : "Copy failed. Select and copy the comment response link below.");
+      setCommentSentMessage(
+        copied
+          ? "Comment response link copied. Send it to the region owner."
+          : "Copy failed. Select and copy the comment response link below.",
+      );
       return;
     }
 
@@ -2140,419 +2528,670 @@ export default function MyRegionsScreen() {
         showsVerticalScrollIndicator
         style={styles.screenScroll}
       >
-      <ThemedText type="title">My Regions</ThemedText>
-      {recoveryMessage ? <ThemedText accessibilityLiveRegion="polite" type="small">{recoveryMessage}</ThemedText> : null}
-      {lastDeletedId ? (
-        <Pressable accessibilityRole="button" onPress={undoRegionDeletion} style={styles.contentButton}>
-          <ThemedText type="smallBold">Undo deletion</ThemedText>
-        </Pressable>
-      ) : null}
-      {recoveryEntries.length ? (
-        <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: recoveryExpanded }} onPress={() => setRecoveryExpanded(!recoveryExpanded)} style={styles.contentButton}>
-            <ThemedText type="smallBold">Recently Deleted & Recovery ({recoveryEntries.length})</ThemedText>
+        <ThemedText type="title">My Regions</ThemedText>
+        {recoveryMessage ? (
+          <ThemedText accessibilityLiveRegion="polite" type="small">
+            {recoveryMessage}
+          </ThemedText>
+        ) : null}
+        {lastDeletedId ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={undoRegionDeletion}
+            style={styles.contentButton}
+          >
+            <ThemedText type="smallBold">Undo deletion</ThemedText>
           </Pressable>
-          {recoveryExpanded ? <>
-            <ThemedText type="small">Recovery copies stay in this browser across reloads and are included in full backups. Content deletions restore a separate region copy so later edits are kept.</ThemedText>
-            {recoveryEntries.map((entry) => <View key={entry.id} style={styles.actionRow}>
-              <ThemedText style={{ flexShrink: 1 }} type="small">{entry.name} · {new Date(entry.deletedAt).toLocaleDateString()}</ThemedText>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Restore ${entry.name}`} onPress={() => restoreRecoveryEntry(entry.id)} style={styles.contentButton}>
-                <ThemedText type="smallBold">Restore</ThemedText>
-              </Pressable>
-            </View>)}
-          </> : null}
-        </ThemedView>
-      ) : null}
-      {liveGuestPermission ? (
-        <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
-          <ThemedText type="smallBold">
-            Live Shared Region —{" "}
-            {liveShareStatus === "connected"
-              ? "Connected"
-              : liveShareStatus === "waiting-for-peer" ||
-                  liveShareStatus === "connecting"
-                ? "Connecting…"
-                : liveShareStatus === "error"
-                  ? "Connection error"
-                  : "Disconnected"}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            This region syncs directly with the owner&apos;s device while
-            this connection stays open. Nothing is stored on a server.
-          </ThemedText>
-          {liveShareStatus !== "connected" ? (
-            <Pressable accessibilityRole="button" onPress={() => liveSessionRef.current?.connect()} style={styles.contentButton}>
-              <ThemedText type="smallBold">Reconnect</ThemedText>
+        ) : null}
+        {recoveryEntries.length ? (
+          <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: recoveryExpanded }}
+              onPress={() => setRecoveryExpanded(!recoveryExpanded)}
+              style={styles.contentButton}
+            >
+              <ThemedText type="smallBold">
+                Recently Deleted & Recovery ({recoveryEntries.length})
+              </ThemedText>
             </Pressable>
-          ) : null}
-          {liveGuestPermission === "comment" ? (
-            <View style={styles.liveGuestActions}>
-              <TextInput
-                onChangeText={setGuestCommentDraft}
-                placeholder="Add a comment"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                style={styles.input}
-                value={guestCommentDraft}
-              />
-              <Pressable
-                onPress={sendGuestComment}
-                disabled={!guestCommentDraft.trim()}
-                style={({ pressed }) => [
-                  styles.secondaryAction,
-                  !guestCommentDraft.trim() && styles.disabledButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <ThemedText type="smallBold">Send Comment</ThemedText>
-              </Pressable>
-              {guestCommentSent ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  Comment sent ✓
+            {recoveryExpanded ? (
+              <>
+                <ThemedText type="small">
+                  Recovery copies stay in this browser across reloads and are
+                  included in full backups. Content deletions restore a separate
+                  region copy so later edits are kept.
                 </ThemedText>
-              ) : null}
-            </View>
-          ) : null}
-          {liveGuestPermission === "edit"
-            ? (() => {
-                const liveIndex = regions.findIndex(
-                  (region) => region.liveRoomCode,
-                );
-                if (liveIndex < 0) return null;
-                return (
-                  <View style={styles.liveGuestActions}>
+                {recoveryEntries.map((entry) => (
+                  <View key={entry.id} style={styles.actionRow}>
+                    <ThemedText style={{ flexShrink: 1 }} type="small">
+                      {entry.name} ·{" "}
+                      {new Date(entry.deletedAt).toLocaleDateString()}
+                    </ThemedText>
                     <Pressable
-                      onPress={() => sendGuestEdits(regions[liveIndex])}
-                      style={({ pressed }) => [
-                        styles.secondaryAction,
-                        pressed && styles.pressed,
-                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore ${entry.name}`}
+                      onPress={() => restoreRecoveryEntry(entry.id)}
+                      style={styles.contentButton}
                     >
-                      <ThemedText type="smallBold">
-                        Send My Edits to Owner
-                      </ThemedText>
+                      <ThemedText type="smallBold">Restore</ThemedText>
                     </Pressable>
-                    {guestEditMessage ? (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {guestEditMessage}
-                      </ThemedText>
-                    ) : null}
                   </View>
-                );
-              })()
-            : null}
-        </ThemedView>
-      ) : null}
-      {commentResponseLink ? (
-        <TextInput accessibilityLabel="Comment response link" editable={false} multiline selectTextOnFocus value={commentResponseLink} style={[styles.input, { maxHeight: 100 }]} />
-      ) : null}
-      {sharedPermission ? (
-        <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
-          <ThemedText type="smallBold">
-            {isCommentResponse
-              ? "Comment received"
-              : `Shared access: ${
-                  sharedPermission === "view"
-                    ? "View only"
-                    : sharedPermission === "comment"
-                      ? "Can comment"
-                      : "Can edit"
-                }`}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {isCommentResponse
-              ? "This comment was sent back in a response link. Save or copy it into your region notes as needed."
-              : "Shared regions open as temporary previews. Choose ✓ Add to keep a copy on this device, or ✕ Dismiss to close the preview."}
-          </ThemedText>
-          {sharedComment ? (
-            <ThemedText type="small">Comment: {sharedComment}</ThemedText>
-          ) : null}
-          {sharedPermission === "comment" && !isCommentResponse ? (
-            <View style={styles.liveGuestActions}>
+                ))}
+              </>
+            ) : null}
+          </ThemedView>
+        ) : null}
+        {liveGuestPermission ? (
+          <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
+            <ThemedText type="smallBold">
+              Live Shared Region —{" "}
+              {liveShareStatus === "connected"
+                ? "Connected"
+                : liveShareStatus === "waiting-for-peer" ||
+                    liveShareStatus === "connecting"
+                  ? "Connecting…"
+                  : liveShareStatus === "error"
+                    ? "Connection error"
+                    : "Disconnected"}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              This region syncs directly with the owner&apos;s device while this
+              connection stays open. Nothing is stored on a server.
+            </ThemedText>
+            {liveShareStatus !== "connected" ? (
               <Pressable
-                onPress={() => {
-                  setCommentDraft(sharedComment);
-                  setCommentEditorVisible(true);
-                }}
-                style={({ pressed }) => [
-                  styles.secondaryAction,
-                  pressed && styles.pressed,
-                ]}
+                accessibilityRole="button"
+                onPress={() => liveSessionRef.current?.connect()}
+                style={styles.contentButton}
               >
-                <ThemedText type="smallBold">
-                  {sharedComment ? "Edit Comment" : "Add Comment"}
-                </ThemedText>
+                <ThemedText type="smallBold">Reconnect</ThemedText>
               </Pressable>
-              {sharedComment ? (
+            ) : null}
+            {liveGuestPermission === "comment" ? (
+              <View style={styles.liveGuestActions}>
+                <TextInput
+                  onChangeText={setGuestCommentDraft}
+                  placeholder="Add a comment"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  style={styles.input}
+                  value={guestCommentDraft}
+                />
                 <Pressable
-                  onPress={() => void sendCommentToOwner()}
+                  onPress={sendGuestComment}
+                  disabled={!guestCommentDraft.trim()}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    !guestCommentDraft.trim() && styles.disabledButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Send Comment</ThemedText>
+                </Pressable>
+                {guestCommentSent ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Comment sent ✓
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
+            {liveGuestPermission === "edit"
+              ? (() => {
+                  const liveIndex = regions.findIndex(
+                    (region) => region.liveRoomCode,
+                  );
+                  if (liveIndex < 0) return null;
+                  return (
+                    <View style={styles.liveGuestActions}>
+                      <Pressable
+                        onPress={() => sendGuestEdits(regions[liveIndex])}
+                        style={({ pressed }) => [
+                          styles.secondaryAction,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">
+                          Send My Edits to Owner
+                        </ThemedText>
+                      </Pressable>
+                      {guestEditMessage ? (
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {guestEditMessage}
+                        </ThemedText>
+                      ) : null}
+                      {pendingHostUpdate ? (
+                        <View style={styles.liveConflictBanner}>
+                          <ThemedText type="small">
+                            The region owner made changes while you were
+                            editing. Sending your edits now would overwrite
+                            theirs.
+                          </ThemedText>
+                          <View style={styles.routeActionRow}>
+                            <Pressable
+                              onPress={() => setPendingHostUpdate(null)}
+                              style={({ pressed }) => [
+                                styles.secondaryAction,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">
+                                Keep My Edits
+                              </ThemedText>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => {
+                                const update = pendingHostUpdate;
+                                if (!update) return;
+                                guestSyncBaselineRef.current =
+                                  getRegionContentSnapshot(update);
+                                setRegions((current) => {
+                                  const index = current.findIndex(
+                                    (region) =>
+                                      region.liveRoomCode ===
+                                      update.liveRoomCode,
+                                  );
+                                  if (index < 0) return current;
+                                  const next = [...current];
+                                  next[index] = {
+                                    ...update,
+                                    temporary: current[index].temporary,
+                                  };
+                                  return next;
+                                });
+                                setPendingHostUpdate(null);
+                              }}
+                              style={({ pressed }) => [
+                                styles.secondaryAction,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">
+                                Load Their Changes
+                              </ThemedText>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })()
+              : null}
+          </ThemedView>
+        ) : null}
+        {commentResponseLink ? (
+          <TextInput
+            accessibilityLabel="Comment response link"
+            editable={false}
+            multiline
+            selectTextOnFocus
+            value={commentResponseLink}
+            style={[styles.input, { maxHeight: 100 }]}
+          />
+        ) : null}
+        {sharedPermission ? (
+          <ThemedView type="backgroundElement" style={styles.liveGuestNotice}>
+            <ThemedText type="smallBold">
+              {isCommentResponse
+                ? "Comment received"
+                : `Shared access: ${
+                    sharedPermission === "view"
+                      ? "View only"
+                      : sharedPermission === "comment"
+                        ? "Can comment"
+                        : "Can edit"
+                  }`}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {isCommentResponse
+                ? "This comment was sent back in a response link. Save or copy it into your region notes as needed."
+                : "Shared regions open as temporary previews. Choose ✓ Add to keep a copy on this device, or ✕ Dismiss to close the preview."}
+            </ThemedText>
+            {sharedComment ? (
+              <ThemedText type="small">Comment: {sharedComment}</ThemedText>
+            ) : null}
+            {sharedPermission === "comment" && !isCommentResponse ? (
+              <View style={styles.liveGuestActions}>
+                <Pressable
+                  onPress={() => {
+                    setCommentDraft(sharedComment);
+                    setCommentEditorVisible(true);
+                  }}
                   style={({ pressed }) => [
                     styles.secondaryAction,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <ThemedText type="smallBold">Send Comment Back</ThemedText>
+                  <ThemedText type="smallBold">
+                    {sharedComment ? "Edit Comment" : "Add Comment"}
+                  </ThemedText>
                 </Pressable>
-              ) : null}
-              {commentSentMessage ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {commentSentMessage}
-                </ThemedText>
-              ) : null}
-            </View>
-          ) : null}
-        </ThemedView>
-      ) : null}
+                {sharedComment ? (
+                  <Pressable
+                    onPress={() => void sendCommentToOwner()}
+                    style={({ pressed }) => [
+                      styles.secondaryAction,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Send Comment Back</ThemedText>
+                  </Pressable>
+                ) : null}
+                {commentSentMessage ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {commentSentMessage}
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
+          </ThemedView>
+        ) : null}
 
-      {regions.length === 0 ? (
-        <ThemedView style={styles.emptyState}>
-          <ThemedText type="subtitle">Don&apos;t Have A Region?</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
-            Create a region to plan routes, gyms, teams, and your custom map.
-          </ThemedText>
-          <Pressable
-            onPress={openCreateMenu}
-            style={({ pressed }) => pressed && styles.pressed}
-          >
-            <ThemedView type="backgroundElement" style={styles.createButton}>
-              <ThemedText type="smallBold">Make One Now</ThemedText>
+        {regions.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <ThemedText type="subtitle">Don&apos;t Have A Region?</ThemedText>
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.emptyDescription}
+            >
+              Create a region to plan routes, gyms, teams, and your custom map.
+            </ThemedText>
+            <Pressable
+              onPress={openCreateMenu}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <ThemedView type="backgroundElement" style={styles.createButton}>
+                <ThemedText type="smallBold">Make One Now</ThemedText>
+              </ThemedView>
+            </Pressable>
+            <View style={styles.emptyImportExportActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={openImportModal}
+                style={({ pressed }) => [
+                  styles.emptyImportExportButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Import Regions</ThemedText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={openExportModal}
+                style={({ pressed }) => [
+                  styles.emptyImportExportButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Export Regions</ThemedText>
+              </Pressable>
+            </View>
+          </ThemedView>
+        ) : (
+          <View style={styles.regionsSection}>
+            <ThemedView type="backgroundElement" style={styles.regionsArea}>
+              <TextInput
+                accessibilityLabel="Search regions and contents"
+                placeholder="Search regions, routes, gyms, or Pokémon"
+                value={regionSearch}
+                onChangeText={setRegionSearch}
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    backgroundColor: theme.backgroundSelected,
+                  },
+                ]}
+              />
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: unfinishedOnly }}
+                onPress={() => setUnfinishedOnly((value) => !value)}
+                style={({ pressed }) => [
+                  styles.unfinishedFilter,
+                  unfinishedOnly && {
+                    backgroundColor: theme.backgroundSelected,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText style={styles.unfinishedFilterText}>
+                  {unfinishedOnly ? "✓ " : ""}Show unfinished regions only
+                </ThemedText>
+              </Pressable>
+              <View style={styles.bulkSelectRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setBulkSelectMode((mode) => !mode);
+                    setSelectedForDelete(new Set());
+                  }}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">
+                    {bulkSelectMode ? "Cancel Select" : "Select Regions"}
+                  </ThemedText>
+                </Pressable>
+                {bulkSelectMode && selectedForDelete.size > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      confirmDeletePrompt({
+                        title: `Delete ${selectedForDelete.size} region(s)?`,
+                        message:
+                          "This removes the selected regions and all of their saved route, gym, and leader data.",
+                        onConfirm: () => removeSavedRegions(selectedForDelete),
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.removeRouteButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">
+                      Delete Selected ({selectedForDelete.size})
+                    </ThemedText>
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={styles.regionList}>
+                {regions
+                  .map((region, index) => ({ region, index }))
+                  .filter(({ region }) => {
+                    const searchable = [
+                      region.name,
+                      region.rivalName,
+                      region.type,
+                      ...region.routeNames,
+                      ...region.gyms,
+                      ...Object.values(region.routePokemon)
+                        .flat()
+                        .map((pokemon) => pokemon.name),
+                      ...region.gymPokemon
+                        .flat()
+                        .map((pokemon) => pokemon.name),
+                      ...region.eliteFour,
+                      ...region.eliteFourPokemon
+                        .flat()
+                        .map((pokemon) => pokemon.name),
+                      region.champion ?? "",
+                      ...region.championPokemon.map((pokemon) => pokemon.name),
+                    ]
+                      .join(" ")
+                      .toLowerCase();
+                    return (
+                      searchable.includes(regionSearch.trim().toLowerCase()) &&
+                      (!unfinishedOnly ||
+                        regionChecklist(region).some((item) => !item.done))
+                    );
+                  })
+                  .map(({ region, index }) => (
+                    <View
+                      key={`${region.name}-${region.rivalName}-${index}`}
+                      style={styles.regionCard}
+                    >
+                      <RegionChecklist
+                        region={region}
+                        onOpen={(section) => {
+                          openContentMenu(index);
+                          setRoutesExpanded(section === "routes");
+                          setGymsExpanded(section === "gyms");
+                          setEliteFourExpanded(section === "eliteFour");
+                          setMapExpanded(section === "map");
+                        }}
+                      />
+                      {region.temporary ? (
+                        <View style={styles.regionActions}>
+                          {region.sharePermission && !region.temporary ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove saved copy of ${region.name}`}
+                              onPress={() =>
+                                confirmDeletePrompt({
+                                  title: "Remove saved copy?",
+                                  message:
+                                    "This removes the copy on this device. You can restore it from Recently Deleted & Recovery.",
+                                  onConfirm: () => removeSavedRegion(index),
+                                })
+                              }
+                              style={styles.contentButton}
+                            >
+                              <ThemedText type="smallBold">
+                                Remove copy
+                              </ThemedText>
+                            </Pressable>
+                          ) : null}
+                          <ThemedText type="small">
+                            Temporary shared preview
+                          </ThemedText>
+                          <Pressable
+                            accessibilityLabel={`Add ${region.name} permanently`}
+                            accessibilityRole="button"
+                            onPress={() => acceptSharedRegion(index)}
+                            style={styles.contentButton}
+                          >
+                            <ThemedText type="smallBold">✓ Add</ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Dismiss ${region.name}`}
+                            accessibilityRole="button"
+                            onPress={() => dismissSharedRegion(index)}
+                            style={styles.contentButton}
+                          >
+                            <ThemedText type="smallBold">✕ Dismiss</ThemedText>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                      <View style={styles.regionRow}>
+                        {bulkSelectMode ? (
+                          <Pressable
+                            accessibilityRole="checkbox"
+                            accessibilityLabel={`Select ${region.name}`}
+                            accessibilityState={{
+                              checked: selectedForDelete.has(index),
+                            }}
+                            onPress={() =>
+                              setSelectedForDelete((current) => {
+                                const next = new Set(current);
+                                if (next.has(index)) next.delete(index);
+                                else next.add(index);
+                                return next;
+                              })
+                            }
+                            style={styles.regionSelectCheckbox}
+                          >
+                            <ThemedText type="smallBold">
+                              {selectedForDelete.has(index) ? "☑" : "☐"}
+                            </ThemedText>
+                          </Pressable>
+                        ) : null}
+                        <ThemedText
+                          type="subtitle"
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.8}
+                          numberOfLines={3}
+                          style={styles.savedRegionName}
+                        >
+                          {region.name}
+                        </ThemedText>
+                        <View style={styles.regionActions}>
+                          {region.sharePermission && !region.temporary ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove saved copy of ${region.name}`}
+                              onPress={() =>
+                                confirmDeletePrompt({
+                                  title: "Remove saved copy?",
+                                  message:
+                                    "This removes the copy on this device. You can restore it from Recently Deleted & Recovery.",
+                                  onConfirm: () => removeSavedRegion(index),
+                                })
+                              }
+                              style={styles.contentButton}
+                            >
+                              <ThemedText type="smallBold">
+                                Remove copy
+                              </ThemedText>
+                            </Pressable>
+                          ) : null}
+                          {!region.sharePermission && !region.liveRoomCode ? (
+                            <Pressable
+                              accessibilityLabel={`Duplicate ${region.name}`}
+                              accessibilityRole="button"
+                              onPress={() => duplicateRegion(index)}
+                              style={({ pressed }) => [
+                                styles.contentButton,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">
+                                Duplicate
+                              </ThemedText>
+                            </Pressable>
+                          ) : null}
+                          <Pressable
+                            disabled={!canEditRegion(region)}
+                            accessibilityLabel={`Edit ${region.name}`}
+                            accessibilityRole="button"
+                            onPress={() => openEditMenu(index)}
+                            style={({ pressed }) => [
+                              styles.contentButton,
+                              !canEditRegion(region) && { opacity: 0.45 },
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">Edit</ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Content for ${region.name}`}
+                            accessibilityRole="button"
+                            onPress={() => openContentMenu(index)}
+                            style={({ pressed }) => [
+                              styles.contentButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">Content</ThemedText>
+                          </Pressable>
+                          {(!region.sharePermission ||
+                            region.sharePermission === "edit") &&
+                          (!region.liveRoomCode ||
+                            !liveGuestPermission ||
+                            liveGuestPermission === "edit") ? (
+                            <Pressable
+                              accessibilityLabel={`Share ${region.name}`}
+                              accessibilityRole="button"
+                              onPress={() => {
+                                setCopyStatus("");
+                                setManualShareLink("");
+                                setShareRegionIndex(index);
+                                setSharePermission("view");
+                                setShareComment("");
+                                setShareMode("link");
+                                stopLiveShare();
+                                setShareVisible(true);
+                              }}
+                              style={({ pressed }) => [
+                                styles.iconActionButton,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ShareGlyph color={theme.text} />
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                      <View style={styles.regionMetaRow}>
+                        <ThemedText type="small">
+                          {region.routeNames?.length ?? 0} routes
+                        </ThemedText>
+                        <ThemedText type="small">
+                          {region.gyms?.length ?? 0} gyms
+                        </ThemedText>
+                        <ThemedText type="small">
+                          {region.gimmicks?.length ?? 0} gimmicks
+                        </ThemedText>
+                        <ThemedText type="small">
+                          {countAssignedPokemon(
+                            [
+                              ...(region.gymPokemon ?? []),
+                              ...(region.eliteFourPokemon ?? []),
+                              region.championPokemon ?? [],
+                            ],
+                            region.routePokemon ?? {},
+                          )}{" "}
+                          Pokémon assigned
+                        </ThemedText>
+                        {region.eliteFour?.length ? (
+                          <ThemedText type="small">
+                            {region.eliteFour.length} elite members
+                          </ThemedText>
+                        ) : null}
+                      </View>
+                      {region.gimmicks?.length ? (
+                        <ThemedText
+                          type="small"
+                          style={styles.regionGimmickSummary}
+                        >
+                          Gimmicks: {region.gimmicks.join(", ")}
+                        </ThemedText>
+                      ) : null}
+                    </View>
+                  ))}
+              </View>
             </ThemedView>
-          </Pressable>
-          <View style={styles.emptyImportExportActions}>
+            <Pressable
+              accessibilityLabel="Create another region"
+              accessibilityRole="button"
+              onPress={openCreateMenu}
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="subtitle">+</ThemedText>
+            </Pressable>
+          </View>
+        )}
+
+        {regions.length > 0 ? (
+          <View style={styles.footerActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={chooseImportFile}
+              style={({ pressed }) => [
+                styles.toolbarButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold">Upload</ThemedText>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={openImportModal}
               style={({ pressed }) => [
-                styles.emptyImportExportButton,
+                styles.toolbarButton,
                 pressed && styles.pressed,
               ]}
             >
-              <ThemedText type="smallBold">Import Regions</ThemedText>
+              <ThemedText type="smallBold">Import</ThemedText>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={openExportModal}
               style={({ pressed }) => [
-                styles.emptyImportExportButton,
+                styles.toolbarButton,
                 pressed && styles.pressed,
               ]}
             >
-              <ThemedText type="smallBold">Export Regions</ThemedText>
+              <ThemedText type="smallBold">Export</ThemedText>
             </Pressable>
           </View>
-        </ThemedView>
-      ) : (
-        <View style={styles.regionsSection}>
-          <ThemedView type="backgroundElement" style={styles.regionsArea}>
-            <TextInput accessibilityLabel="Search regions and contents" placeholder="Search regions, routes, gyms, or Pokémon" value={regionSearch} onChangeText={setRegionSearch} placeholderTextColor={theme.textSecondary} style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSelected }]} />
-            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: unfinishedOnly }} onPress={() => setUnfinishedOnly(value => !value)} style={({ pressed }) => [styles.unfinishedFilter, unfinishedOnly && { backgroundColor: theme.backgroundSelected }, pressed && styles.pressed]}>
-              <ThemedText style={styles.unfinishedFilterText}>{unfinishedOnly ? "✓ " : ""}Show unfinished regions only</ThemedText>
-            </Pressable>
-            <View style={styles.regionList}>
-              {regions.map((region, index) => ({region,index})).filter(({region}) => {
-                const searchable = [region.name, region.rivalName, region.type, ...region.routeNames, ...region.gyms,
-                  ...Object.values(region.routePokemon).flat().map(pokemon => pokemon.name),
-                  ...region.gymPokemon.flat().map(pokemon => pokemon.name), ...region.eliteFour,
-                  ...region.eliteFourPokemon.flat().map(pokemon => pokemon.name), region.champion ?? "",
-                  ...region.championPokemon.map(pokemon => pokemon.name)].join(" ").toLowerCase();
-                return searchable.includes(regionSearch.trim().toLowerCase()) && (!unfinishedOnly || regionChecklist(region).some(item => !item.done));
-              }).map(({region, index}) => (
-                <View key={`${region.name}-${region.rivalName}-${index}`} style={styles.regionCard}>
-                  <RegionChecklist region={region} onOpen={section => {
-                    openContentMenu(index);
-                    setRoutesExpanded(section === "routes"); setGymsExpanded(section === "gyms");
-                    setEliteFourExpanded(section === "eliteFour"); setMapExpanded(section === "map");
-                  }} />
-                  {region.temporary ? (
-                    <View style={styles.regionActions}>
-                      {region.sharePermission && !region.temporary ? (
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove saved copy of ${region.name}`}
-                          onPress={() => confirmDeletePrompt({ title: "Remove saved copy?", message: "This removes the copy on this device. You can restore it from Recently Deleted & Recovery.", onConfirm: () => removeSavedRegion(index) })}
-                          style={styles.contentButton}>
-                          <ThemedText type="smallBold">Remove copy</ThemedText>
-                        </Pressable>
-                      ) : null}
-                      <ThemedText type="small">Temporary shared preview</ThemedText>
-                      <Pressable
-                        accessibilityLabel={`Add ${region.name} permanently`}
-                        accessibilityRole="button"
-                        onPress={() => acceptSharedRegion(index)}
-                        style={styles.contentButton}
-                      >
-                        <ThemedText type="smallBold">✓ Add</ThemedText>
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel={`Dismiss ${region.name}`}
-                        accessibilityRole="button"
-                        onPress={() => dismissSharedRegion(index)}
-                        style={styles.contentButton}
-                      >
-                        <ThemedText type="smallBold">✕ Dismiss</ThemedText>
-                      </Pressable>
-                    </View>
-                  ) : null}
-                  <View style={styles.regionRow}>
-                    <ThemedText
-                      type="subtitle"
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.8}
-                      numberOfLines={3}
-                      style={styles.savedRegionName}
-                    >
-                      {region.name}
-                    </ThemedText>
-                    <View style={styles.regionActions}>
-                      {region.sharePermission && !region.temporary ? (
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove saved copy of ${region.name}`}
-                          onPress={() => confirmDeletePrompt({ title: "Remove saved copy?", message: "This removes the copy on this device. You can restore it from Recently Deleted & Recovery.", onConfirm: () => removeSavedRegion(index) })}
-                          style={styles.contentButton}>
-                          <ThemedText type="smallBold">Remove copy</ThemedText>
-                        </Pressable>
-                      ) : null}
-                      {!region.sharePermission && !region.liveRoomCode ? (
-                        <Pressable
-                          accessibilityLabel={`Duplicate ${region.name}`}
-                          accessibilityRole="button"
-                          onPress={() => duplicateRegion(index)}
-                          style={({ pressed }) => [
-                            styles.contentButton,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ThemedText type="smallBold">Duplicate</ThemedText>
-                        </Pressable>
-                      ) : null}
-                      <Pressable
-                        disabled={!canEditRegion(region)}
-                        accessibilityLabel={`Edit ${region.name}`}
-                        accessibilityRole="button"
-                        onPress={() => openEditMenu(index)}
-                        style={({ pressed }) => [styles.contentButton, !canEditRegion(region) && { opacity: 0.45 }, pressed && styles.pressed]}
-                      >
-                        <ThemedText type="smallBold">Edit</ThemedText>
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel={`Content for ${region.name}`}
-                        accessibilityRole="button"
-                        onPress={() => openContentMenu(index)}
-                        style={({ pressed }) => [
-                          styles.contentButton,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <ThemedText type="smallBold">Content</ThemedText>
-                      </Pressable>
-                      {(!region.sharePermission ||
-                        region.sharePermission === "edit") &&
-                      (!region.liveRoomCode ||
-                        !liveGuestPermission ||
-                        liveGuestPermission === "edit") ? (
-                        <Pressable
-                          accessibilityLabel={`Share ${region.name}`}
-                          accessibilityRole="button"
-                          onPress={() => {
-                            setCopyStatus("");
-                            setManualShareLink("");
-                            setShareRegionIndex(index);
-                            setSharePermission("view");
-                            setShareComment("");
-                            setShareMode("link");
-                            stopLiveShare();
-                            setShareVisible(true);
-                          }}
-                          style={({ pressed }) => [
-                            styles.iconActionButton,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ShareGlyph color={theme.text} />
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
-                  <View style={styles.regionMetaRow}>
-                    <ThemedText type="small">
-                      {region.routeNames?.length ?? 0} routes
-                    </ThemedText>
-                    <ThemedText type="small">
-                      {region.gyms?.length ?? 0} gyms
-                    </ThemedText>
-                    <ThemedText type="small">
-                      {region.gimmicks?.length ?? 0} gimmicks
-                    </ThemedText>
-                    <ThemedText type="small">
-                      {countAssignedPokemon(
-                        [
-                          ...(region.gymPokemon ?? []),
-                          ...(region.eliteFourPokemon ?? []),
-                          region.championPokemon ?? [],
-                        ],
-                        region.routePokemon ?? {},
-                      )} Pokémon assigned
-                    </ThemedText>
-                    {region.eliteFour?.length ? (
-                      <ThemedText type="small">
-                        {region.eliteFour.length} elite members
-                      </ThemedText>
-                    ) : null}
-                  </View>
-                  {region.gimmicks?.length ? (
-                    <ThemedText type="small" style={styles.regionGimmickSummary}>
-                      Gimmicks: {region.gimmicks.join(", ")}
-                    </ThemedText>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          </ThemedView>
-          <Pressable
-            accessibilityLabel="Create another region"
-            accessibilityRole="button"
-            onPress={openCreateMenu}
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText type="subtitle">+</ThemedText>
-          </Pressable>
-        </View>
-      )}
-
-      {regions.length > 0 ? (
-        <View style={styles.footerActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={chooseImportFile}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText type="smallBold">Upload</ThemedText>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={openImportModal}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText type="smallBold">Import</ThemedText>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={openExportModal}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText type="smallBold">Export</ThemedText>
-          </Pressable>
-        </View>
-      ) : null}
-
+        ) : null}
       </ScrollView>
 
       <Modal
@@ -2567,11 +3206,17 @@ export default function MyRegionsScreen() {
         <View style={styles.modalOverlay}>
           <ThemedView type="backgroundElement" style={styles.shareMenu}>
             <ThemedText type="subtitle" style={styles.menuTitle}>
-              Share {shareRegionIndex === null ? "Region" : regions[shareRegionIndex]?.name}
+              Share{" "}
+              {shareRegionIndex === null
+                ? "Region"
+                : regions[shareRegionIndex]?.name}
             </ThemedText>
             <View style={styles.shareModeOptions}>
               <Pressable
-                onPress={() => { setCopyStatus(""); setShareMode("link"); }}
+                onPress={() => {
+                  setCopyStatus("");
+                  setShareMode("link");
+                }}
                 style={[
                   styles.shareModeOption,
                   shareMode === "link" && styles.selectedDropdown,
@@ -2580,7 +3225,10 @@ export default function MyRegionsScreen() {
                 <ThemedText type="smallBold">Share Link</ThemedText>
               </Pressable>
               <Pressable
-                onPress={() => { setCopyStatus(""); setShareMode("live"); }}
+                onPress={() => {
+                  setCopyStatus("");
+                  setShareMode("live");
+                }}
                 style={[
                   styles.shareModeOption,
                   shareMode === "live" && styles.selectedDropdown,
@@ -2594,7 +3242,9 @@ export default function MyRegionsScreen() {
                 <ThemedText type="small" themeColor="textSecondary">
                   This creates a self-contained link. It is not real-time
                   collaboration; the recipient receives a local copy with the
-                  selected permission. Anyone with the link receives the data and can make their own copy; snapshot permissions are not access security.
+                  selected permission. Anyone with the link receives the data
+                  and can make their own copy; snapshot permissions are not
+                  access security.
                 </ThemedText>
                 <View style={styles.sharePermissionOptions}>
                   {(
@@ -2641,15 +3291,14 @@ export default function MyRegionsScreen() {
             ) : (
               <>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Live Share sends this region directly to another open
-                  device over a temporary peer-to-peer connection. Only a
-                  brief connection-setup message passes through our
-                  signaling service; no region data is stored there.
+                  Live Share sends this region directly to another open device
+                  over a temporary peer-to-peer connection. Only a brief
+                  connection-setup message passes through our signaling service;
+                  no region data is stored there.
                 </ThemedText>
                 {!isLiveShareSupported() ? (
                   <ThemedText type="small" themeColor="textSecondary">
-                    Live Share is only available in the web version of this
-                    app.
+                    Live Share is only available in the web version of this app.
                   </ThemedText>
                 ) : liveShareStatus === "idle" ? (
                   <>
@@ -2681,9 +3330,7 @@ export default function MyRegionsScreen() {
                         pressed && styles.pressed,
                       ]}
                     >
-                      <ThemedText type="smallBold">
-                        Start Live Share
-                      </ThemedText>
+                      <ThemedText type="smallBold">Start Live Share</ThemedText>
                     </Pressable>
                   </>
                 ) : (
@@ -2730,7 +3377,11 @@ export default function MyRegionsScreen() {
                       </View>
                     ) : null}
                     {liveShareStatus !== "connected" ? (
-                      <Pressable accessibilityRole="button" onPress={() => liveSessionRef.current?.connect()} style={styles.contentButton}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => liveSessionRef.current?.connect()}
+                        style={styles.contentButton}
+                      >
                         <ThemedText type="smallBold">Reconnect</ThemedText>
                       </Pressable>
                     ) : null}
@@ -2741,19 +3392,26 @@ export default function MyRegionsScreen() {
                         pressed && styles.pressed,
                       ]}
                     >
-                      <ThemedText type="smallBold">
-                        Stop Live Share
-                      </ThemedText>
+                      <ThemedText type="smallBold">Stop Live Share</ThemedText>
                     </Pressable>
                   </>
                 )}
               </>
             )}
-            {copyStatus ? <ThemedText accessibilityLiveRegion="polite" type="small">{copyStatus}</ThemedText> : null}
+            {copyStatus ? (
+              <ThemedText accessibilityLiveRegion="polite" type="small">
+                {copyStatus}
+              </ThemedText>
+            ) : null}
             {(shareMode === "live" ? liveShareLink : manualShareLink) ? (
-              <TextInput accessibilityLabel="Share link" editable={false} multiline selectTextOnFocus
+              <TextInput
+                accessibilityLabel="Share link"
+                editable={false}
+                multiline
+                selectTextOnFocus
                 value={shareMode === "live" ? liveShareLink : manualShareLink}
-                style={[styles.input, { maxHeight: 100 }]} />
+                style={[styles.input, { maxHeight: 100 }]}
+              />
             ) : null}
             <Pressable
               onPress={() => {
@@ -2826,105 +3484,155 @@ export default function MyRegionsScreen() {
             showsVerticalScrollIndicator
             style={styles.modalScroll}
           >
-          <ThemedView type="backgroundElement" style={styles.menu}>
-            <ThemedText type="subtitle" style={styles.menuTitle}>
-              {editingRegionIndex === null
-                ? "Create A Region"
-                : `Edit ${regionName}`}
-            </ThemedText>
-
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Region Name</ThemedText>
-              <TextInput
-                placeholder="e.x. The Time Region"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                onChangeText={setRegionName}
-                style={styles.input}
-                value={regionName}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Rival&apos;s Name</ThemedText>
-              <TextInput
-                placeholder="e.x. Jack"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                onChangeText={setRivalName}
-                style={styles.input}
-                value={rivalName}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Biome</ThemedText>
-              <View style={styles.dropdownOptions}>
-                {biomes.map((type) => (
-                  <Pressable
-                    key={type}
-                    onPress={() => setRegionType(type)}
-                    style={[
-                      styles.dropdown,
-                      regionType === type && styles.selectedDropdown,
-                    ]}
-                  >
-                    <ThemedText type="small">{type}</ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            {editingRegionIndex === null ? <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Start from a template</ThemedText>
-              <View style={styles.gymActions}>
-                <Pressable style={styles.closeButton} onPress={() => setCreationTemplate(null)}><ThemedText>{creationTemplate === null ? "✓ " : ""}Blank</ThemedText></Pressable>
-                <Pressable style={styles.closeButton} onPress={() => {setCreationTemplate("basic"); setRouteCount("20");}}><ThemedText>{creationTemplate === "basic" ? "✓ " : ""}Eight gyms</ThemedText></Pressable>
-                {regions.map((region, index) => canEditRegion(region) && !region.temporary ? <Pressable key={index} style={styles.closeButton}
-                  onPress={() => {setCreationTemplate(index); setRouteCount(region.routes); setRegionType(region.type);}}>
-                  <ThemedText>{creationTemplate === index ? "✓ " : ""}Use {region.name}</ThemedText></Pressable> : null)}
-              </View>
-            </View> : null}
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Number of Routes</ThemedText>
-              <TextInput accessibilityLabel="Number of Routes" keyboardType="number-pad"
-                placeholder="e.g. 20" value={routeCount} onChangeText={setRouteCount} style={styles.input} />
-              <ThemedText type="small">Choose 1–999 routes. You can change this limit later.</ThemedText>
-              {routeCountError ? <ThemedText type="small">{routeCountError}</ThemedText> : null}
-            </View>
-
-            <Pressable
-              onPress={editingRegionIndex === null ? createRegion : saveRegion}
-              style={({ pressed }) => [
-                styles.createMenuButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold">
-                {editingRegionIndex === null ? "Create Region" : "Save Changes"}
+            <ThemedView type="backgroundElement" style={styles.menu}>
+              <ThemedText type="subtitle" style={styles.menuTitle}>
+                {editingRegionIndex === null
+                  ? "Create A Region"
+                  : `Edit ${regionName}`}
               </ThemedText>
-            </Pressable>
 
-            {editingRegionIndex !== null && (
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Region Name</ThemedText>
+                <TextInput
+                  placeholder="e.x. The Time Region"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  onChangeText={setRegionName}
+                  style={styles.input}
+                  value={regionName}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Rival&apos;s Name</ThemedText>
+                <TextInput
+                  placeholder="e.x. Jack"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  onChangeText={setRivalName}
+                  style={styles.input}
+                  value={rivalName}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Biome</ThemedText>
+                <View style={styles.dropdownOptions}>
+                  {biomes.map((type) => (
+                    <Pressable
+                      key={type}
+                      onPress={() => setRegionType(type)}
+                      style={[
+                        styles.dropdown,
+                        regionType === type && styles.selectedDropdown,
+                      ]}
+                    >
+                      <ThemedText type="small">{type}</ThemedText>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {editingRegionIndex === null ? (
+                <View style={styles.fieldGroup}>
+                  <ThemedText type="smallBold">
+                    Start from a template
+                  </ThemedText>
+                  <View style={styles.gymActions}>
+                    <Pressable
+                      style={styles.closeButton}
+                      onPress={() => setCreationTemplate(null)}
+                    >
+                      <ThemedText>
+                        {creationTemplate === null ? "✓ " : ""}Blank
+                      </ThemedText>
+                    </Pressable>
+                    <Pressable
+                      style={styles.closeButton}
+                      onPress={() => {
+                        setCreationTemplate("basic");
+                        setRouteCount("20");
+                      }}
+                    >
+                      <ThemedText>
+                        {creationTemplate === "basic" ? "✓ " : ""}Eight gyms
+                      </ThemedText>
+                    </Pressable>
+                    {regions.map((region, index) =>
+                      canEditRegion(region) && !region.temporary ? (
+                        <Pressable
+                          key={index}
+                          style={styles.closeButton}
+                          onPress={() => {
+                            setCreationTemplate(index);
+                            setRouteCount(region.routes);
+                            setRegionType(region.type);
+                          }}
+                        >
+                          <ThemedText>
+                            {creationTemplate === index ? "✓ " : ""}Use{" "}
+                            {region.name}
+                          </ThemedText>
+                        </Pressable>
+                      ) : null,
+                    )}
+                  </View>
+                </View>
+              ) : null}
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Number of Routes</ThemedText>
+                <TextInput
+                  accessibilityLabel="Number of Routes"
+                  keyboardType="number-pad"
+                  placeholder="e.g. 20"
+                  value={routeCount}
+                  onChangeText={setRouteCount}
+                  style={styles.input}
+                />
+                <ThemedText type="small">
+                  Choose 1–999 routes. You can change this limit later.
+                </ThemedText>
+                {routeCountError ? (
+                  <ThemedText type="small">{routeCountError}</ThemedText>
+                ) : null}
+              </View>
+
               <Pressable
-                onPress={confirmRegionDelete}
+                onPress={
+                  editingRegionIndex === null ? createRegion : saveRegion
+                }
                 style={({ pressed }) => [
-                  styles.deleteButton,
+                  styles.createMenuButton,
                   pressed && styles.pressed,
                 ]}
               >
-                <ThemedText type="smallBold">Delete Region</ThemedText>
+                <ThemedText type="smallBold">
+                  {editingRegionIndex === null
+                    ? "Create Region"
+                    : "Save Changes"}
+                </ThemedText>
               </Pressable>
-            )}
 
-            <Pressable
-              onPress={() => setMenuVisible(false)}
-              style={({ pressed }) => [
-                styles.closeButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold">Close</ThemedText>
-            </Pressable>
-          </ThemedView>
+              {editingRegionIndex !== null && (
+                <Pressable
+                  onPress={confirmRegionDelete}
+                  style={({ pressed }) => [
+                    styles.deleteButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Delete Region</ThemedText>
+                </Pressable>
+              )}
+
+              <Pressable
+                onPress={() => setMenuVisible(false)}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Close</ThemedText>
+              </Pressable>
+            </ThemedView>
           </ScrollView>
         </View>
       </Modal>
@@ -2957,24 +3665,23 @@ export default function MyRegionsScreen() {
             <View style={styles.fieldGroup}>
               <ThemedText type="smallBold">Music Type</ThemedText>
               <View style={styles.musicTypeOptions}>
-                {(["sheet", "file"] as MusicEntry["kind"][]).map(
-                  (kind) => (
-                    <Pressable disabled={contentReadOnly}
-                      key={kind}
-                      onPress={() => setMusicKind(kind)}
-                      style={[
-                        styles.typeChip,
-                        (musicKind === kind ||
-                          (kind === "sheet" && musicKind === "audio")) &&
-                          styles.selectedDropdown,
-                      ]}
-                    >
-                      <ThemedText type="small">
-                        {kind === "sheet" ? "Audio/Sheet Music" : "File"}
-                      </ThemedText>
-                    </Pressable>
-                  ),
-                )}
+                {(["sheet", "file"] as MusicEntry["kind"][]).map((kind) => (
+                  <Pressable
+                    disabled={contentReadOnly}
+                    key={kind}
+                    onPress={() => setMusicKind(kind)}
+                    style={[
+                      styles.typeChip,
+                      (musicKind === kind ||
+                        (kind === "sheet" && musicKind === "audio")) &&
+                        styles.selectedDropdown,
+                    ]}
+                  >
+                    <ThemedText type="small">
+                      {kind === "sheet" ? "Audio/Sheet Music" : "File"}
+                    </ThemedText>
+                  </Pressable>
+                ))}
               </View>
             </View>
             <View style={styles.fieldGroup}>
@@ -2987,7 +3694,8 @@ export default function MyRegionsScreen() {
                 style={styles.input}
                 value={musicUri.startsWith("data:") ? "" : musicUri}
               />
-              <Pressable disabled={contentReadOnly}
+              <Pressable
+                disabled={contentReadOnly}
                 onPress={chooseMusicFile}
                 style={({ pressed }) => [
                   styles.secondaryAction,
@@ -3004,10 +3712,13 @@ export default function MyRegionsScreen() {
             </View>
             <Pressable
               onPress={saveMusicEntry}
-              disabled={contentReadOnly || (!musicName.trim() || !musicUri.trim())}
+              disabled={
+                contentReadOnly || !musicName.trim() || !musicUri.trim()
+              }
               style={({ pressed }) => [
                 styles.createMenuButton,
-                (!musicName.trim() || !musicUri.trim()) && styles.disabledButton,
+                (!musicName.trim() || !musicUri.trim()) &&
+                  styles.disabledButton,
                 pressed && styles.pressed,
               ]}
             >
@@ -3073,7 +3784,8 @@ export default function MyRegionsScreen() {
                 value={newGimmickDescription}
               />
             </View>
-            <Pressable disabled={contentReadOnly}
+            <Pressable
+              disabled={contentReadOnly}
               onPress={saveNewGimmick}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -3108,7 +3820,9 @@ export default function MyRegionsScreen() {
         <View style={styles.modalOverlay}>
           <ThemedView type="backgroundElement" style={styles.importExportModal}>
             <ThemedText type="subtitle" style={styles.menuTitle}>
-              {importExportMode === "import" ? "Import Regions" : "Export Regions"}
+              {importExportMode === "import"
+                ? "Import Regions"
+                : "Export Regions"}
             </ThemedText>
 
             <TextInput
@@ -3146,13 +3860,22 @@ export default function MyRegionsScreen() {
                     <ThemedText type="smallBold">Upload File</ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={importRegions}
+                    onPress={() => importRegions("merge")}
                     style={({ pressed }) => [
                       styles.createMenuButton,
                       pressed && styles.pressed,
                     ]}
                   >
-                    <ThemedText type="smallBold">Import Data</ThemedText>
+                    <ThemedText type="smallBold">Add to Existing</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => importRegions("replace")}
+                    style={({ pressed }) => [
+                      styles.createMenuButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <ThemedText type="smallBold">Replace All</ThemedText>
                   </Pressable>
                 </>
               ) : (
@@ -3248,81 +3971,167 @@ export default function MyRegionsScreen() {
               </Pressable>
               {routesExpanded ? (
                 <View style={styles.contentDropdownContent}>
-                  <TextInput accessibilityLabel="Filter encounters" placeholder="Filter by route, Pokémon, terrain, time, weather, or progression" value={encounterFilter} onChangeText={setEncounterFilter} style={styles.input} />
+                  <TextInput
+                    accessibilityLabel="Filter encounters"
+                    placeholder="Filter by route, Pokémon, terrain, time, weather, or progression"
+                    value={encounterFilter}
+                    onChangeText={setEncounterFilter}
+                    style={styles.input}
+                  />
                   <ScrollView
                     style={styles.contentRouteList}
                     contentContainerStyle={styles.contentRouteContent}
                     showsVerticalScrollIndicator
                   >
-                    {activeRouteNames.map((routeName, routeIndex) => ({routeName, routeIndex})).filter(({routeName}) => {
-                      const details = activeContentRegion?.routeDetails[routeName];
-                      return [routeName, details?.terrain, details?.time, details?.weather, details?.progression,
-                        ...(activeContentRegion?.routePokemon[routeName] ?? []).map(entry => entry.name)].join(" ").toLowerCase().includes(encounterFilter.trim().toLowerCase());
-                    }).map(({routeName, routeIndex}) => (
-                      <Animated.View
-                        key={`${routeName}-${routeIndex}`}
-                        style={getWaterfallStyle(
-                          routeIndex,
-                          activeRouteNames.length + 1,
-                        )}
+                    {activeRouteNames
+                      .map((routeName, routeIndex) => ({
+                        routeName,
+                        routeIndex,
+                      }))
+                      .filter(({ routeName }) => {
+                        const details =
+                          activeContentRegion?.routeDetails[routeName];
+                        return [
+                          routeName,
+                          details?.terrain,
+                          details?.time,
+                          details?.weather,
+                          details?.progression,
+                          ...(
+                            activeContentRegion?.routePokemon[routeName] ?? []
+                          ).map((entry) => entry.name),
+                        ]
+                          .join(" ")
+                          .toLowerCase()
+                          .includes(encounterFilter.trim().toLowerCase());
+                      })
+                      .map(({ routeName, routeIndex }) => (
+                        <Animated.View
+                          key={`${routeName}-${routeIndex}`}
+                          style={getWaterfallStyle(
+                            routeIndex,
+                            activeRouteNames.length + 1,
+                          )}
+                        >
+                          <View style={styles.routeActionRow}>
+                            {!contentReadOnly ? (
+                              <>
+                                {(["up", "down", "duplicate"] as const).map(
+                                  (action) => (
+                                    <Pressable
+                                      key={action}
+                                      accessibilityLabel={`${action} ${routeName}`}
+                                      style={styles.closeButton}
+                                      disabled={
+                                        (action === "up" && routeIndex === 0) ||
+                                        (action === "down" &&
+                                          routeIndex ===
+                                            activeRouteNames.length - 1) ||
+                                        (action === "duplicate" && !canAddRoute)
+                                      }
+                                      onPress={() =>
+                                        organizeContent(
+                                          "route",
+                                          routeIndex,
+                                          action,
+                                        )
+                                      }
+                                    >
+                                      <ThemedText>
+                                        {action === "up"
+                                          ? "↑"
+                                          : action === "down"
+                                            ? "↓"
+                                            : "Duplicate"}
+                                      </ThemedText>
+                                    </Pressable>
+                                  ),
+                                )}
+                              </>
+                            ) : null}
+                            <Pressable
+                              accessibilityLabel={routeName}
+                              accessibilityRole="button"
+                              onPress={() => openRouteMenu(routeName)}
+                              style={({ pressed }) => [
+                                styles.routeOptionButton,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="small">{routeName}</ThemedText>
+                            </Pressable>
+                            <Pressable
+                              disabled={contentReadOnly}
+                              accessibilityLabel={`Remove ${routeName}`}
+                              accessibilityRole="button"
+                              onPress={() =>
+                                confirmDeletePrompt({
+                                  title: "Remove route?",
+                                  message: `This will delete ${routeName} from this region.`,
+                                  onConfirm: () => removeRoute(routeIndex),
+                                })
+                              }
+                              style={({ pressed }) => [
+                                styles.removeRouteButton,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">Remove</ThemedText>
+                            </Pressable>
+                          </View>
+                        </Animated.View>
+                      ))}
+                  </ScrollView>
+                  <ThemedText type="small">
+                    {activeRouteNames.length} of {activeRouteLimit || 0} routes
+                    added
+                  </ThemedText>
+                  {!contentReadOnly ? (
+                    <>
+                      <Pressable
+                        style={styles.closeButton}
+                        onPress={() => {
+                          setRouteLimitDraft(String(activeRouteLimit || 1));
+                          setCustomRouteCount("1");
+                          setRouteCountError("");
+                          setCustomRoutesVisible(true);
+                        }}
                       >
+                        <ThemedText type="smallBold">
+                          Change Route Limit
+                        </ThemedText>
+                      </Pressable>
+                      {canAddRoute ? (
                         <View style={styles.routeActionRow}>
-                          {!contentReadOnly ? <>
-                            {(["up", "down", "duplicate"] as const).map(action => <Pressable key={action}
-                              accessibilityLabel={`${action} ${routeName}`} style={styles.closeButton}
-                              disabled={(action === "up" && routeIndex === 0) || (action === "down" && routeIndex === activeRouteNames.length - 1) || (action === "duplicate" && !canAddRoute)}
-                              onPress={() => organizeContent("route", routeIndex, action)}>
-                              <ThemedText>{action === "up" ? "↑" : action === "down" ? "↓" : "Duplicate"}</ThemedText>
-                            </Pressable>)}
-                          </> : null}
                           <Pressable
-                            accessibilityLabel={routeName}
-                            accessibilityRole="button"
-                            onPress={() => openRouteMenu(routeName)}
-                            style={({ pressed }) => [
-                              styles.routeOptionButton,
-                              pressed && styles.pressed,
-                            ]}
+                            onPress={() => addRoute()}
+                            style={styles.createMenuButton}
                           >
-                            <ThemedText type="small">{routeName}</ThemedText>
+                            <ThemedText type="smallBold">
+                              Add All Routes
+                            </ThemedText>
                           </Pressable>
-                          <Pressable disabled={contentReadOnly}
-                            accessibilityLabel={`Remove ${routeName}`}
-                            accessibilityRole="button"
-                            onPress={() =>
-                              confirmDeletePrompt({
-                                title: "Remove route?",
-                                message: `This will delete ${routeName} from this region.`,
-                                onConfirm: () => removeRoute(routeIndex),
-                              })
-                            }
-                            style={({ pressed }) => [
-                              styles.removeRouteButton,
-                              pressed && styles.pressed,
-                            ]}
+                          <Pressable
+                            style={styles.createMenuButton}
+                            onPress={() => {
+                              setRouteLimitDraft(String(activeRouteLimit));
+                              setCustomRouteCount("1");
+                              setRouteCountError("");
+                              setCustomRoutesVisible(true);
+                            }}
                           >
-                            <ThemedText type="smallBold">Remove</ThemedText>
+                            <ThemedText type="smallBold">
+                              Add Custom Routes
+                            </ThemedText>
                           </Pressable>
                         </View>
-                      </Animated.View>
-                    ))}
-                  </ScrollView>
-                  <ThemedText type="small">{activeRouteNames.length} of {activeRouteLimit || 0} routes added</ThemedText>
-                  {!contentReadOnly ? <>
-                    <Pressable style={styles.closeButton} onPress={() => {
-                      setRouteLimitDraft(String(activeRouteLimit || 1)); setCustomRouteCount("1");
-                      setRouteCountError(""); setCustomRoutesVisible(true);
-                    }}><ThemedText type="smallBold">Change Route Limit</ThemedText></Pressable>
-                    {canAddRoute ? <View style={styles.routeActionRow}>
-                      <Pressable onPress={() => addRoute()} style={styles.createMenuButton}>
-                        <ThemedText type="smallBold">Add All Routes</ThemedText>
-                      </Pressable>
-                      <Pressable style={styles.createMenuButton} onPress={() => {
-                        setRouteLimitDraft(String(activeRouteLimit)); setCustomRouteCount("1");
-                        setRouteCountError(""); setCustomRoutesVisible(true);
-                      }}><ThemedText type="smallBold">Add Custom Routes</ThemedText></Pressable>
-                    </View> : <ThemedText type="small">Route limit reached</ThemedText>}
-                  </> : null}
+                      ) : (
+                        <ThemedText type="small">
+                          Route limit reached
+                        </ThemedText>
+                      )}
+                    </>
+                  ) : null}
                 </View>
               ) : null}
               <Pressable
@@ -3338,70 +4147,123 @@ export default function MyRegionsScreen() {
               {musicExpanded ? (
                 <View style={styles.contentDropdownContent}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Add audio links, sheet music, or uploaded music files for this region.
+                    Add audio links, sheet music, or uploaded music files for
+                    this region.
                   </ThemedText>
+                  {musicEntries.length > 1 ? (
+                    <TextInput
+                      accessibilityLabel="Filter music"
+                      placeholder="Filter by music name"
+                      value={musicFilter}
+                      onChangeText={setMusicFilter}
+                      style={styles.input}
+                    />
+                  ) : null}
                   {musicEntries.length > 0 ? (
                     <View style={styles.musicList}>
-                      {musicEntries.map((entry, index) => (
-                        <View key={`${entry.name}-${index}`} style={styles.musicCard}>
-                          <View style={styles.musicDetails}>
-                            <ThemedText type="smallBold">{entry.name}</ThemedText>
-                            {Platform.OS === "web" && entry.kind === "audio"
-                              ? createElement("audio", {
-                                  controls: true,
-                                  src: entry.uri,
-                                  style: { width: "100%" },
-                                })
-                              : null}
-                            {Platform.OS === "web" && getMusicProvider(entry.uri)
-                              ? createElement("iframe", {
-                                  allow: "autoplay; fullscreen",
-                                  allowFullScreen: true,
-                                  frameBorder: "0",
-                                  loading: "lazy",
-                                  title: entry.name,
-                                  src: getMusicEmbedUri(entry.uri),
-                                  style: { width: "100%", height: 300, border: 0 },
-                                })
-                              : null}
-                            {Platform.OS === "web" && entry.kind === "sheet"
-                              && !getMusicProvider(entry.uri)
-                              ? entry.uri.toLowerCase().startsWith("data:image/")
-                                ? createElement("img", {
-                                    alt: entry.name,
-                                    src: entry.uri,
-                                    style: { maxWidth: "100%", maxHeight: 300, objectFit: "contain" },
-                                  })
-                                : createElement("iframe", {
-                                    title: entry.name,
-                                    src: entry.uri,
-                                    style: { width: "100%", height: 260, border: 0 },
-                                  })
-                              : null}
-                            <Pressable
-                              onPress={() => void Linking.openURL(entry.uri)}
-                              style={styles.musicOpenButton}
-                            >
+                      {musicEntries
+                        .map((entry, index) => ({ entry, index }))
+                        .filter(({ entry }) =>
+                          entry.name
+                            .toLowerCase()
+                            .includes(musicFilter.trim().toLowerCase()),
+                        ).length === 0 ? (
+                        <ThemedText type="small" style={styles.noGimmicksText}>
+                          No music matches your search.
+                        </ThemedText>
+                      ) : null}
+                      {musicEntries
+                        .map((entry, index) => ({ entry, index }))
+                        .filter(({ entry }) =>
+                          entry.name
+                            .toLowerCase()
+                            .includes(musicFilter.trim().toLowerCase()),
+                        )
+                        .map(({ entry, index }) => (
+                          <View
+                            key={`${entry.name}-${index}`}
+                            style={styles.musicCard}
+                          >
+                            <View style={styles.musicDetails}>
                               <ThemedText type="smallBold">
-                                {entry.kind === "audio" ? "Open Audio" : "Open File"}
+                                {entry.name}
                               </ThemedText>
+                              {Platform.OS === "web" && entry.kind === "audio"
+                                ? createElement("audio", {
+                                    controls: true,
+                                    src: entry.uri,
+                                    style: { width: "100%" },
+                                  })
+                                : null}
+                              {Platform.OS === "web" &&
+                              getMusicProvider(entry.uri)
+                                ? createElement("iframe", {
+                                    allow: "autoplay; fullscreen",
+                                    allowFullScreen: true,
+                                    frameBorder: "0",
+                                    loading: "lazy",
+                                    title: entry.name,
+                                    src: getMusicEmbedUri(entry.uri),
+                                    style: {
+                                      width: "100%",
+                                      height: 300,
+                                      border: 0,
+                                    },
+                                  })
+                                : null}
+                              {Platform.OS === "web" &&
+                              entry.kind === "sheet" &&
+                              !getMusicProvider(entry.uri)
+                                ? entry.uri
+                                    .toLowerCase()
+                                    .startsWith("data:image/")
+                                  ? createElement("img", {
+                                      alt: entry.name,
+                                      src: entry.uri,
+                                      style: {
+                                        maxWidth: "100%",
+                                        maxHeight: 300,
+                                        objectFit: "contain",
+                                      },
+                                    })
+                                  : createElement("iframe", {
+                                      title: entry.name,
+                                      src: entry.uri,
+                                      style: {
+                                        width: "100%",
+                                        height: 260,
+                                        border: 0,
+                                      },
+                                    })
+                                : null}
+                              <Pressable
+                                onPress={() => void Linking.openURL(entry.uri)}
+                                style={styles.musicOpenButton}
+                              >
+                                <ThemedText type="smallBold">
+                                  {entry.kind === "audio"
+                                    ? "Open Audio"
+                                    : "Open File"}
+                                </ThemedText>
+                              </Pressable>
+                            </View>
+                            <Pressable
+                              disabled={contentReadOnly}
+                              onPress={() => removeMusicEntry(index)}
+                              style={styles.smallDeleteAction}
+                            >
+                              <ThemedText type="smallBold">Remove</ThemedText>
                             </Pressable>
                           </View>
-                          <Pressable disabled={contentReadOnly}
-                            onPress={() => removeMusicEntry(index)}
-                            style={styles.smallDeleteAction}
-                          >
-                            <ThemedText type="smallBold">Remove</ThemedText>
-                          </Pressable>
-                        </View>
-                      ))}
+                        ))}
                     </View>
                   ) : (
                     <ThemedText type="small" style={styles.noGimmicksText}>
                       No music added yet.
                     </ThemedText>
                   )}
-                  <Pressable disabled={contentReadOnly}
+                  <Pressable
+                    disabled={contentReadOnly}
                     onPress={openMusicEditor}
                     style={({ pressed }) => [
                       styles.createMenuButton,
@@ -3427,7 +4289,7 @@ export default function MyRegionsScreen() {
                   <View style={styles.gymActions}>
                     <Pressable
                       onPress={addSuggestedGyms}
-                      disabled={contentReadOnly || (!canAddSuggestedGyms)}
+                      disabled={contentReadOnly || !canAddSuggestedGyms}
                       style={({ pressed }) => [
                         styles.gymActionButton,
                         !canAddSuggestedGyms && styles.disabledButton,
@@ -3444,7 +4306,7 @@ export default function MyRegionsScreen() {
                     </Pressable>
                     <Pressable
                       onPress={openCustomGymMenu}
-                      disabled={contentReadOnly || (remainingGymSlots <= 0)}
+                      disabled={contentReadOnly || remainingGymSlots <= 0}
                       style={({ pressed }) => [
                         styles.gymActionButton,
                         remainingGymSlots <= 0 && styles.disabledButton,
@@ -3468,14 +4330,38 @@ export default function MyRegionsScreen() {
                         )}
                       >
                         <View style={styles.routeActionRow}>
-                          {!contentReadOnly ? <>
-                            {(["up", "down", "duplicate"] as const).map(action => <Pressable key={action}
-                              accessibilityLabel={`${action} ${gymName}`} style={styles.closeButton}
-                              disabled={(action === "up" && gymIndex === 0) || (action === "down" && gymIndex === activeGymNames.length - 1) || (action === "duplicate" && remainingGymSlots <= 0)}
-                              onPress={() => organizeContent("gym", gymIndex, action)}>
-                              <ThemedText>{action === "up" ? "↑" : action === "down" ? "↓" : "Duplicate"}</ThemedText>
-                            </Pressable>)}
-                          </> : null}
+                          {!contentReadOnly ? (
+                            <>
+                              {(["up", "down", "duplicate"] as const).map(
+                                (action) => (
+                                  <Pressable
+                                    key={action}
+                                    accessibilityLabel={`${action} ${gymName}`}
+                                    style={styles.closeButton}
+                                    disabled={
+                                      (action === "up" && gymIndex === 0) ||
+                                      (action === "down" &&
+                                        gymIndex ===
+                                          activeGymNames.length - 1) ||
+                                      (action === "duplicate" &&
+                                        remainingGymSlots <= 0)
+                                    }
+                                    onPress={() =>
+                                      organizeContent("gym", gymIndex, action)
+                                    }
+                                  >
+                                    <ThemedText>
+                                      {action === "up"
+                                        ? "↑"
+                                        : action === "down"
+                                          ? "↓"
+                                          : "Duplicate"}
+                                    </ThemedText>
+                                  </Pressable>
+                                ),
+                              )}
+                            </>
+                          ) : null}
                           <Pressable
                             accessibilityLabel={`Edit ${gymName}`}
                             accessibilityRole="button"
@@ -3502,7 +4388,8 @@ export default function MyRegionsScreen() {
                                 : "Pokemon"}
                             </ThemedText>
                           </Pressable>
-                          <Pressable disabled={contentReadOnly}
+                          <Pressable
+                            disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${gymName}`}
                             accessibilityRole="button"
                             onPress={() =>
@@ -3541,7 +4428,7 @@ export default function MyRegionsScreen() {
                     <View style={styles.gymActions}>
                       <Pressable
                         onPress={addEliteFour}
-                        disabled={contentReadOnly || (!canAddEliteFour)}
+                        disabled={contentReadOnly || !canAddEliteFour}
                         style={({ pressed }) => [
                           styles.gymActionButton,
                           !canAddEliteFour && styles.disabledButton,
@@ -3554,7 +4441,7 @@ export default function MyRegionsScreen() {
                       </Pressable>
                       <Pressable
                         onPress={addChampion}
-                        disabled={contentReadOnly || (!canAddChampion)}
+                        disabled={contentReadOnly || !canAddChampion}
                         style={({ pressed }) => [
                           styles.gymActionButton,
                           !canAddChampion && styles.disabledButton,
@@ -3606,14 +4493,15 @@ export default function MyRegionsScreen() {
                                 : "Pokemon"}
                             </ThemedText>
                           </Pressable>
-                          <Pressable disabled={contentReadOnly}
+                          <Pressable
+                            disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${memberName}`}
                             accessibilityRole="button"
                             onPress={() =>
                               confirmDeletePrompt({
-                               title: "Remove Elite 4 member?",
-                               message: `This will delete ${memberName} from this region.`,
-                               onConfirm: () => removeEliteFour(memberIndex),
+                                title: "Remove Elite 4 member?",
+                                message: `This will delete ${memberName} from this region.`,
+                                onConfirm: () => removeEliteFour(memberIndex),
                               })
                             }
                             style={({ pressed }) => [
@@ -3655,7 +4543,8 @@ export default function MyRegionsScreen() {
                                 : "Pokemon"}
                             </ThemedText>
                           </Pressable>
-                          <Pressable disabled={contentReadOnly}
+                          <Pressable
+                            disabled={contentReadOnly}
                             accessibilityLabel={`Remove ${activeChampionName}`}
                             accessibilityRole="button"
                             onPress={() =>
@@ -3693,35 +4582,63 @@ export default function MyRegionsScreen() {
                   <ThemedText type="small" themeColor="textSecondary">
                     Select saved gimmicks for this region, or create one here.
                   </ThemedText>
+                  {availableGimmicks.length > 1 ? (
+                    <TextInput
+                      accessibilityLabel="Filter gimmicks"
+                      placeholder="Filter by name or category"
+                      value={gimmickFilter}
+                      onChangeText={setGimmickFilter}
+                      style={styles.input}
+                    />
+                  ) : null}
                   {availableGimmicks.length > 0 ? (
                     <View style={styles.gimmickOptions}>
-                      {availableGimmicks.map((gimmick) => (
-                        <Pressable disabled={contentReadOnly}
-                          key={gimmick.name}
-                          onPress={() => {
-                            toggleGimmick(gimmick.name);
-                          }}
-                          style={[
-                            styles.gimmickOption,
-                            selectedGimmicks.includes(gimmick.name) &&
-                              styles.selectedDropdown,
-                          ]}
-                        >
-                          <ThemedText type="smallBold">{gimmick.name}</ThemedText>
-                          {gimmick.category ? (
-                            <ThemedText type="small">
-                              {gimmick.category}
+                      {availableGimmicks.filter((gimmick) =>
+                        `${gimmick.name} ${gimmick.category}`
+                          .toLowerCase()
+                          .includes(gimmickFilter.trim().toLowerCase()),
+                      ).length === 0 ? (
+                        <ThemedText type="small" style={styles.noGimmicksText}>
+                          No gimmicks match your search.
+                        </ThemedText>
+                      ) : null}
+                      {availableGimmicks
+                        .filter((gimmick) =>
+                          `${gimmick.name} ${gimmick.category}`
+                            .toLowerCase()
+                            .includes(gimmickFilter.trim().toLowerCase()),
+                        )
+                        .map((gimmick) => (
+                          <Pressable
+                            disabled={contentReadOnly}
+                            key={gimmick.name}
+                            onPress={() => {
+                              toggleGimmick(gimmick.name);
+                            }}
+                            style={[
+                              styles.gimmickOption,
+                              selectedGimmicks.includes(gimmick.name) &&
+                                styles.selectedDropdown,
+                            ]}
+                          >
+                            <ThemedText type="smallBold">
+                              {gimmick.name}
                             </ThemedText>
-                          ) : null}
-                        </Pressable>
-                      ))}
+                            {gimmick.category ? (
+                              <ThemedText type="small">
+                                {gimmick.category}
+                              </ThemedText>
+                            ) : null}
+                          </Pressable>
+                        ))}
                     </View>
                   ) : (
                     <ThemedText type="small" style={styles.noGimmicksText}>
                       No saved gimmicks yet.
                     </ThemedText>
                   )}
-                  <Pressable disabled={contentReadOnly}
+                  <Pressable
+                    disabled={contentReadOnly}
                     onPress={openGimmickCreate}
                     style={({ pressed }) => [
                       styles.createMenuButton,
@@ -3744,135 +4661,190 @@ export default function MyRegionsScreen() {
               </Pressable>
               {mapExpanded ? (
                 <Animated.View style={getWaterfallStyle(0, 1)}>
-                  <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ flexGrow: 1 }}>
-                  <View
-                    style={[
-                      styles.mapCanvas,
-                      { backgroundColor: mapTheme.base },
-                    ]}
-                  >
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.mapWater,
-                        { backgroundColor: mapTheme.water },
-                      ]}
-                    />
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.mapForest,
-                        { backgroundColor: mapTheme.forest },
-                      ]}
-                    />
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.mapHighlands,
-                        { backgroundColor: mapTheme.highlands },
-                      ]}
-                    />
-                    {activeRouteNames.slice(1).map((_, routeIndex) => {
-                      const previousPosition = getMapPosition(
-                        `route-${routeIndex}`,
-                        routeIndex,
-                      );
-                      const currentPosition = getMapPosition(
-                        `route-${routeIndex + 1}`,
-                        routeIndex + 1,
-                      );
-                      return (
-                        <View
-                          key={`route-connector-${routeIndex + 1}`}
-                          pointerEvents="none"
-                          style={[
-                            styles.routeConnector,
-                            { backgroundColor: mapTheme.path },
-                            getRouteConnectorStyle(
-                              previousPosition,
-                              currentPosition,
-                            ),
-                          ]}
-                        />
-                      );
-                    })}
-                    {activeRouteNames.map((routeName, routeIndex) => {
-                      const id = `route-${routeIndex}`;
-                      const position = getMapPosition(id, routeIndex);
-                      return (
-                        <View
-                          key={id}
-                          onResponderGrant={(event) =>
-                            startMapDrag(id, position, event)
-                          }
-                          onResponderMove={moveMapDrag}
-                          onResponderRelease={finishMapDrag}
-                          onResponderTerminate={finishMapDrag}
-                          onStartShouldSetResponder={() => !contentReadOnly}
-                          style={[
-                            styles.routeMapPiece,
-                            { left: position.x, top: position.y },
-                          ]}
+                  {(() => {
+                    const routePositions = activeRouteNames.map(
+                      (_, routeIndex) =>
+                        getMapPosition(`route-${routeIndex}`, routeIndex),
+                    );
+                    const gymPositions = activeGymNames.map((_, gymIndex) =>
+                      getMapPosition(`gym-${gymIndex}`, gymIndex),
+                    );
+                    const allPositions = [...routePositions, ...gymPositions];
+                    const mapCanvasWidth = allPositions.reduce(
+                      (max, position) => Math.max(max, position.x + 92 + 10),
+                      490,
+                    );
+                    const mapCanvasHeight = allPositions.reduce(
+                      (max, position) => Math.max(max, position.y + 62 + 10),
+                      540,
+                    );
+                    return (
+                      <ScrollView
+                        style={styles.mapViewport}
+                        showsVerticalScrollIndicator
+                      >
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator
+                          contentContainerStyle={{ flexGrow: 1 }}
                         >
                           <View
-                            pointerEvents="none"
                             style={[
-                              styles.routePathSegmentA,
-                              { backgroundColor: mapTheme.pathLight },
+                              styles.mapCanvas,
+                              {
+                                backgroundColor: mapTheme.base,
+                                width: mapCanvasWidth,
+                                height: mapCanvasHeight,
+                              },
                             ]}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={[
-                              styles.routePathSegmentB,
-                              { backgroundColor: mapTheme.pathLight },
-                            ]}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={[
-                              styles.routePathSegmentC,
-                              { backgroundColor: mapTheme.pathDark },
-                            ]}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={styles.routePathLabel}
                           >
-                            <ThemedText type="smallBold">
-                              {routeName}
-                            </ThemedText>
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.mapWater,
+                                { backgroundColor: mapTheme.water },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.mapForest,
+                                { backgroundColor: mapTheme.forest },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.mapHighlands,
+                                { backgroundColor: mapTheme.highlands },
+                              ]}
+                            />
+                            {activeRouteNames
+                              .slice(1)
+                              .flatMap((_, routeIndex) => {
+                                const previousPosition = getMapPosition(
+                                  `route-${routeIndex}`,
+                                  routeIndex,
+                                );
+                                const currentPosition = getMapPosition(
+                                  `route-${routeIndex + 1}`,
+                                  routeIndex + 1,
+                                );
+                                const segments = getRoadSegments(
+                                  previousPosition,
+                                  currentPosition,
+                                );
+                                return segments.map(
+                                  (segmentStyle, segmentIndex) => {
+                                    const roadLength =
+                                      typeof segmentStyle.width === "number"
+                                        ? segmentStyle.width
+                                        : 0;
+                                    const dashCount = Math.max(
+                                      2,
+                                      Math.round(roadLength / 18),
+                                    );
+                                    return (
+                                      <View
+                                        key={`route-connector-${routeIndex + 1}-${segmentIndex}`}
+                                        pointerEvents="none"
+                                        style={[
+                                          styles.routeConnector,
+                                          segmentStyle,
+                                        ]}
+                                      >
+                                        <LinearGradient
+                                          colors={["#58504a", "#352e29"]}
+                                          start={{ x: 0, y: 0 }}
+                                          end={{ x: 0, y: 1 }}
+                                          style={styles.roadSurface}
+                                        />
+                                        <View style={styles.roadDashRow}>
+                                          {Array.from({
+                                            length: dashCount,
+                                          }).map((_, dashIndex) => (
+                                            <View
+                                              key={dashIndex}
+                                              style={[
+                                                styles.roadDash,
+                                                { left: dashIndex * 18 },
+                                              ]}
+                                            />
+                                          ))}
+                                        </View>
+                                      </View>
+                                    );
+                                  },
+                                );
+                              })}
+                            {activeRouteNames.map((routeName, routeIndex) => {
+                              const id = `route-${routeIndex}`;
+                              const position = getMapPosition(id, routeIndex);
+                              return (
+                                <View
+                                  key={id}
+                                  onResponderGrant={(event) =>
+                                    startMapDrag(id, position, event)
+                                  }
+                                  onResponderMove={moveMapDrag}
+                                  onResponderRelease={finishMapDrag}
+                                  onResponderTerminate={finishMapDrag}
+                                  onStartShouldSetResponder={() =>
+                                    !contentReadOnly
+                                  }
+                                  style={[
+                                    styles.routeMapPiece,
+                                    { left: position.x, top: position.y },
+                                  ]}
+                                >
+                                  <View
+                                    pointerEvents="none"
+                                    style={styles.routePathLabel}
+                                  >
+                                    <ThemedText type="smallBold">
+                                      {routeName}
+                                    </ThemedText>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                            {activeGymNames.map((_, gymIndex) => {
+                              const id = `gym-${gymIndex}`;
+                              const position = getMapPosition(id, gymIndex);
+                              return (
+                                <View
+                                  key={id}
+                                  onResponderGrant={(event) =>
+                                    startMapDrag(id, position, event)
+                                  }
+                                  onResponderMove={moveMapDrag}
+                                  onResponderRelease={finishMapDrag}
+                                  onResponderTerminate={finishMapDrag}
+                                  onStartShouldSetResponder={() =>
+                                    !contentReadOnly
+                                  }
+                                  style={[
+                                    styles.gymMapPiece,
+                                    { left: position.x, top: position.y },
+                                  ]}
+                                >
+                                  <ThemedText style={styles.gymEmoji}>
+                                    🏫
+                                  </ThemedText>
+                                  <ThemedText
+                                    type="smallBold"
+                                    style={styles.gymIndex}
+                                  >
+                                    {gymIndex + 1}
+                                  </ThemedText>
+                                </View>
+                              );
+                            })}
                           </View>
-                        </View>
-                      );
-                    })}
-                    {activeGymNames.map((_, gymIndex) => {
-                      const id = `gym-${gymIndex}`;
-                      const position = getMapPosition(id, gymIndex);
-                      return (
-                        <View
-                          key={id}
-                          onResponderGrant={(event) =>
-                            startMapDrag(id, position, event)
-                          }
-                          onResponderMove={moveMapDrag}
-                          onResponderRelease={finishMapDrag}
-                          onResponderTerminate={finishMapDrag}
-                          onStartShouldSetResponder={() => !contentReadOnly}
-                          style={[
-                            styles.gymMapPiece,
-                            { left: position.x, top: position.y },
-                          ]}
-                        >
-                          <ThemedText style={styles.gymEmoji}>🏫</ThemedText>
-                          <ThemedText type="smallBold" style={styles.gymIndex}>
-                            {gymIndex + 1}
-                          </ThemedText>
-                        </View>
-                      );
-                    })}
-                  </View>
-                  </ScrollView>
+                        </ScrollView>
+                      </ScrollView>
+                    );
+                  })()}
                 </Animated.View>
               ) : null}
               <Pressable
@@ -3889,24 +4861,79 @@ export default function MyRegionsScreen() {
         </View>
       </Modal>
 
-      <Modal animationType="fade" transparent visible={customRoutesVisible} onRequestClose={() => setCustomRoutesVisible(false)}>
-        <View style={styles.modalOverlay}><ThemedView type="backgroundElement" style={styles.gymCountMenu}>
-          <ThemedText type="subtitle">Add Custom Routes</ThemedText>
-          <ThemedText type="small">Route limit · {activeRouteNames.length} already added</ThemedText>
-          <TextInput accessibilityLabel="Route limit" editable={!contentReadOnly} keyboardType="number-pad" value={routeLimitDraft} onChangeText={setRouteLimitDraft} style={styles.input} />
-          <Pressable disabled={contentReadOnly} onPress={updateRouteLimit} style={styles.closeButton}><ThemedText>Save Route Limit</ThemedText></Pressable>
-          <ThemedText type="small">How many routes? {Math.max(0, activeRouteLimit - activeRouteNames.length)} slots available.</ThemedText>
-          <TextInput accessibilityLabel="Routes to add" editable={!contentReadOnly} keyboardType="number-pad" value={customRouteCount} onChangeText={setCustomRouteCount} style={styles.input} />
-          {routeCountError ? <ThemedText>{routeCountError}</ThemedText> : null}
-          <Pressable disabled={contentReadOnly || !canAddRoute} style={styles.createMenuButton} onPress={() => {
-            const amount = Number(customRouteCount);
-            if (!/^\d+$/.test(customRouteCount) || !Number.isSafeInteger(amount) || amount < 1 || amount > activeRouteLimit - activeRouteNames.length) {
-              setRouteCountError("Enter a whole number within the available route slots."); return;
-            }
-            addRoute(amount); setCustomRoutesVisible(false);
-          }}><ThemedText>Add Routes</ThemedText></Pressable>
-          <Pressable onPress={() => setCustomRoutesVisible(false)} style={styles.closeButton}><ThemedText>Close</ThemedText></Pressable>
-        </ThemedView></View>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={customRoutesVisible}
+        onRequestClose={() => setCustomRoutesVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ThemedView type="backgroundElement" style={styles.gymCountMenu}>
+            <ThemedText type="subtitle">Add Custom Routes</ThemedText>
+            <ThemedText type="small">
+              Route limit · {activeRouteNames.length} already added
+            </ThemedText>
+            <TextInput
+              accessibilityLabel="Route limit"
+              editable={!contentReadOnly}
+              keyboardType="number-pad"
+              value={routeLimitDraft}
+              onChangeText={setRouteLimitDraft}
+              style={styles.input}
+            />
+            <Pressable
+              disabled={contentReadOnly}
+              onPress={updateRouteLimit}
+              style={styles.closeButton}
+            >
+              <ThemedText>Save Route Limit</ThemedText>
+            </Pressable>
+            <ThemedText type="small">
+              How many routes?{" "}
+              {Math.max(0, activeRouteLimit - activeRouteNames.length)} slots
+              available.
+            </ThemedText>
+            <TextInput
+              accessibilityLabel="Routes to add"
+              editable={!contentReadOnly}
+              keyboardType="number-pad"
+              value={customRouteCount}
+              onChangeText={setCustomRouteCount}
+              style={styles.input}
+            />
+            {routeCountError ? (
+              <ThemedText>{routeCountError}</ThemedText>
+            ) : null}
+            <Pressable
+              disabled={contentReadOnly || !canAddRoute}
+              style={styles.createMenuButton}
+              onPress={() => {
+                const amount = Number(customRouteCount);
+                if (
+                  !/^\d+$/.test(customRouteCount) ||
+                  !Number.isSafeInteger(amount) ||
+                  amount < 1 ||
+                  amount > activeRouteLimit - activeRouteNames.length
+                ) {
+                  setRouteCountError(
+                    "Enter a whole number within the available route slots.",
+                  );
+                  return;
+                }
+                addRoute(amount);
+                setCustomRoutesVisible(false);
+              }}
+            >
+              <ThemedText>Add Routes</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => setCustomRoutesVisible(false)}
+              style={styles.closeButton}
+            >
+              <ThemedText>Close</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
       </Modal>
 
       <Modal
@@ -3987,7 +5014,7 @@ export default function MyRegionsScreen() {
               />
             </View>
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Leader"
               value={gymDetails.leader}
               onChangeText={(value) =>
@@ -3995,7 +5022,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Specialty"
               value={gymDetails.specialty}
               onChangeText={(value) =>
@@ -4003,7 +5030,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Badge"
               value={gymDetails.badge}
               onChangeText={(value) =>
@@ -4011,7 +5038,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Level Cap"
               value={gymDetails.levelCap}
               onChangeText={(value) =>
@@ -4019,7 +5046,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Reward"
               value={gymDetails.reward}
               onChangeText={(value) =>
@@ -4027,14 +5054,15 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Puzzle"
               value={gymDetails.puzzle}
               onChangeText={(value) =>
                 setGymDetails((current) => ({ ...current, puzzle: value }))
               }
             />
-            <Pressable disabled={contentReadOnly}
+            <Pressable
+              disabled={contentReadOnly}
               onPress={saveGym}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -4071,15 +5099,52 @@ export default function MyRegionsScreen() {
                   ? "Champion Pokemon"
                   : "Elite 4 Pokemon"}
             </ThemedText>
-            {!contentReadOnly && activeContentRegion ? <View style={styles.gymActions}>
-              <ThemedText type="smallBold">Copy a team into this draft</ThemedText>
-              {[...activeContentRegion.gyms.map((name, index) => ({name, team: activeContentRegion.gymPokemon[index]})),
-                ...activeContentRegion.eliteFour.map((name, index) => ({name, team: activeContentRegion.eliteFourPokemon[index]})),
-                {name: activeContentRegion.champion ?? "Champion", team: activeContentRegion.championPokemon}]
-                .filter(source => source.team?.length).map((source, index) => <Pressable key={index} style={styles.closeButton}
-                  onPress={() => confirmDeletePrompt({title: "Replace draft team?", message: "This replaces only the team draft. Save Team applies it to the region.", onConfirm: () => {setTeamPokemon(source.team.map(entry => ({...entry, moves: [...entry.moves]}))); setTeamPokemonMenuIndex(null);}})}>
-                  <ThemedText>{source.name}</ThemedText></Pressable>)}
-            </View> : null}
+            {!contentReadOnly && activeContentRegion ? (
+              <View style={styles.gymActions}>
+                <ThemedText type="smallBold">
+                  Copy a team into this draft
+                </ThemedText>
+                {[
+                  ...activeContentRegion.gyms.map((name, index) => ({
+                    name,
+                    team: activeContentRegion.gymPokemon[index],
+                  })),
+                  ...activeContentRegion.eliteFour.map((name, index) => ({
+                    name,
+                    team: activeContentRegion.eliteFourPokemon[index],
+                  })),
+                  {
+                    name: activeContentRegion.champion ?? "Champion",
+                    team: activeContentRegion.championPokemon,
+                  },
+                ]
+                  .filter((source) => source.team?.length)
+                  .map((source, index) => (
+                    <Pressable
+                      key={index}
+                      style={styles.closeButton}
+                      onPress={() =>
+                        confirmDeletePrompt({
+                          title: "Replace draft team?",
+                          message:
+                            "This replaces only the team draft. Save Team applies it to the region.",
+                          onConfirm: () => {
+                            setTeamPokemon(
+                              source.team.map((entry) => ({
+                                ...entry,
+                                moves: [...entry.moves],
+                              })),
+                            );
+                            setTeamPokemonMenuIndex(null);
+                          },
+                        })
+                      }
+                    >
+                      <ThemedText>{source.name}</ThemedText>
+                    </Pressable>
+                  ))}
+              </View>
+            ) : null}
             <ScrollView
               style={styles.teamPokemonList}
               contentContainerStyle={styles.contentRouteContent}
@@ -4087,14 +5152,35 @@ export default function MyRegionsScreen() {
             >
               {teamPokemon.map((pokemon, pokemonIndex) => (
                 <View key={pokemonIndex} style={styles.teamPokemonRow}>
-                  {!contentReadOnly ? <View style={styles.routeActionRow}>{([-1, 1] as const).map(direction => <Pressable key={direction}
-                    accessibilityLabel={`Move team member ${pokemonIndex + 1} ${direction < 0 ? "up" : "down"}`}
-                    disabled={pokemonIndex + direction < 0 || pokemonIndex + direction >= teamPokemon.length}
-                    style={styles.closeButton} onPress={() => {
-                      setTeamPokemon(current => { const next = [...current]; const target = pokemonIndex + direction;
-                        [next[pokemonIndex], next[target]] = [next[target], next[pokemonIndex]]; return next; });
-                      setTeamPokemonMenuIndex(null);
-                    }}><ThemedText>{direction < 0 ? "↑" : "↓"}</ThemedText></Pressable>)}</View> : null}
+                  {!contentReadOnly ? (
+                    <View style={styles.routeActionRow}>
+                      {([-1, 1] as const).map((direction) => (
+                        <Pressable
+                          key={direction}
+                          accessibilityLabel={`Move team member ${pokemonIndex + 1} ${direction < 0 ? "up" : "down"}`}
+                          disabled={
+                            pokemonIndex + direction < 0 ||
+                            pokemonIndex + direction >= teamPokemon.length
+                          }
+                          style={styles.closeButton}
+                          onPress={() => {
+                            setTeamPokemon((current) => {
+                              const next = [...current];
+                              const target = pokemonIndex + direction;
+                              [next[pokemonIndex], next[target]] = [
+                                next[target],
+                                next[pokemonIndex],
+                              ];
+                              return next;
+                            });
+                            setTeamPokemonMenuIndex(null);
+                          }}
+                        >
+                          <ThemedText>{direction < 0 ? "↑" : "↓"}</ThemedText>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
                   <Pressable
                     onPress={() => {
                       setTeamPokemonMenuIndex(
@@ -4114,7 +5200,8 @@ export default function MyRegionsScreen() {
                           : "Select Pokemon"}
                     </ThemedText>
                   </Pressable>
-                  <Pressable disabled={contentReadOnly}
+                  <Pressable
+                    disabled={contentReadOnly}
                     onPress={() =>
                       setTeamPokemon((currentPokemon) =>
                         currentPokemon.filter(
@@ -4129,7 +5216,7 @@ export default function MyRegionsScreen() {
                   {teamPokemonMenuIndex === pokemonIndex ? (
                     <ScrollView style={styles.teamPokemonOptions}>
                       <TextInput
-                editable={!contentReadOnly}
+                        editable={!contentReadOnly}
                         autoCapitalize="none"
                         onChangeText={setTeamPokemonSearch}
                         placeholder="Search Pokemon"
@@ -4142,7 +5229,8 @@ export default function MyRegionsScreen() {
                           option.name.includes(teamPokemonSearch.toLowerCase()),
                         )
                         .map((option) => (
-                          <Pressable disabled={contentReadOnly}
+                          <Pressable
+                            disabled={contentReadOnly}
                             key={option.name}
                             onPress={() => {
                               updateTeamPokemon(pokemonIndex, {
@@ -4165,7 +5253,7 @@ export default function MyRegionsScreen() {
                       <ThemedText type="smallBold">Moves</ThemedText>
                       {pokemon.moves.map((move, moveIndex) => (
                         <TextInput
-                editable={!contentReadOnly}
+                          editable={!contentReadOnly}
                           key={moveIndex}
                           onChangeText={(value) =>
                             updateTeamMove(pokemonIndex, moveIndex, value)
@@ -4183,7 +5271,9 @@ export default function MyRegionsScreen() {
             </ScrollView>
             <Pressable
               onPress={addTeamPokemon}
-              disabled={contentReadOnly || (teamPokemon.length >= MAX_TEAM_POKEMON)}
+              disabled={
+                contentReadOnly || teamPokemon.length >= MAX_TEAM_POKEMON
+              }
               style={({ pressed }) => [
                 styles.createMenuButton,
                 teamPokemon.length >= MAX_TEAM_POKEMON && styles.disabledButton,
@@ -4197,7 +5287,8 @@ export default function MyRegionsScreen() {
               </ThemedText>
             </Pressable>
             <View style={styles.actionRow}>
-              <Pressable disabled={contentReadOnly}
+              <Pressable
+                disabled={contentReadOnly}
                 onPress={saveTeam}
                 style={({ pressed }) => [
                   styles.createMenuButton,
@@ -4248,7 +5339,7 @@ export default function MyRegionsScreen() {
                       : `Elite Member ${index + 1}`}
                   </ThemedText>
                   <TextInput
-                editable={!contentReadOnly}
+                    editable={!contentReadOnly}
                     placeholder={
                       eliteCreationKind === "champion"
                         ? "e.g. Blue"
@@ -4275,7 +5366,7 @@ export default function MyRegionsScreen() {
                     : "Elite 4 Name"}
                 </ThemedText>
                 <TextInput
-                editable={!contentReadOnly}
+                  editable={!contentReadOnly}
                   placeholder={
                     editingEliteKind === "champion"
                       ? "e.g. Champion Blue"
@@ -4288,7 +5379,8 @@ export default function MyRegionsScreen() {
                 />
               </View>
             )}
-            <Pressable disabled={contentReadOnly}
+            <Pressable
+              disabled={contentReadOnly}
               onPress={saveEliteMember}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -4324,7 +5416,7 @@ export default function MyRegionsScreen() {
               {selectedRouteName}
             </ThemedText>
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Terrain"
               value={routeDetails.terrain}
               onChangeText={(value) =>
@@ -4332,7 +5424,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Difficulty"
               value={routeDetails.difficulty}
               onChangeText={(value) =>
@@ -4343,7 +5435,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Items"
               value={routeDetails.items}
               onChangeText={(value) =>
@@ -4351,7 +5443,7 @@ export default function MyRegionsScreen() {
               }
             />
             <DetailInput
-                editable={!contentReadOnly}
+              editable={!contentReadOnly}
               label="Trainers"
               value={routeDetails.trainers}
               onChangeText={(value) =>
@@ -4361,10 +5453,26 @@ export default function MyRegionsScreen() {
                 }))
               }
             />
-            <ThemedText type="smallBold">Encounter conditions for this route</ThemedText>
-            {(["time", "weather", "progression"] as const).map(field => <DetailInput key={field} editable={!contentReadOnly}
-              label={field === "time" ? "Time of day" : field === "weather" ? "Weather" : "Progression requirement"}
-              value={routeDetails[field] ?? ""} onChangeText={value => setRouteDetails(current => ({...current, [field]: value}))} />)}
+            <ThemedText type="smallBold">
+              Encounter conditions for this route
+            </ThemedText>
+            {(["time", "weather", "progression"] as const).map((field) => (
+              <DetailInput
+                key={field}
+                editable={!contentReadOnly}
+                label={
+                  field === "time"
+                    ? "Time of day"
+                    : field === "weather"
+                      ? "Weather"
+                      : "Progression requirement"
+                }
+                value={routeDetails[field] ?? ""}
+                onChangeText={(value) =>
+                  setRouteDetails((current) => ({ ...current, [field]: value }))
+                }
+              />
+            ))}
             <View style={styles.pokemonFieldLabels}>
               <ThemedText type="smallBold" style={styles.pokemonLabel}>
                 Pokemon
@@ -4381,14 +5489,12 @@ export default function MyRegionsScreen() {
               {selectedRoutePokemon.map((entry, index) => (
                 <View key={`${entry.name}-${index}`} style={styles.pokemonRow}>
                   <Pressable
-                    onPress={() =>
-                      (() => {
-                        setPokemonMenuIndex(
-                          pokemonMenuIndex === index ? null : index,
-                        );
-                        setPokemonSearch("");
-                      })()
-                    }
+                    onPress={() => {
+                      setPokemonMenuIndex(
+                        pokemonMenuIndex === index ? null : index,
+                      );
+                      resetPokemonFilters();
+                    }}
                     style={styles.pokemonDropdown}
                   >
                     {entry.name ? (
@@ -4412,7 +5518,7 @@ export default function MyRegionsScreen() {
                     </ThemedText>
                   </Pressable>
                   <TextInput
-                editable={!contentReadOnly}
+                    editable={!contentReadOnly}
                     keyboardType="numeric"
                     onChangeText={(percentage) =>
                       updateRoutePokemon(index, { percentage })
@@ -4425,7 +5531,7 @@ export default function MyRegionsScreen() {
                   {pokemonMenuIndex === index && (
                     <ScrollView style={styles.pokemonOptions}>
                       <TextInput
-                editable={!contentReadOnly}
+                        editable={!contentReadOnly}
                         autoCapitalize="none"
                         onChangeText={setPokemonSearch}
                         placeholder="Search Pokemon"
@@ -4528,7 +5634,8 @@ export default function MyRegionsScreen() {
                                 Number(pokemonGenerationFilter)),
                         )
                         .map((pokemon) => (
-                          <Pressable disabled={contentReadOnly}
+                          <Pressable
+                            disabled={contentReadOnly}
                             key={pokemon.name}
                             onPress={() => {
                               updateRoutePokemon(index, { name: pokemon.name });
@@ -4560,7 +5667,8 @@ export default function MyRegionsScreen() {
                 Your Percentages Don&apos;t Equal 100%!
               </ThemedText>
             )}
-            <Pressable disabled={contentReadOnly}
+            <Pressable
+              disabled={contentReadOnly}
               onPress={addPokemon}
               style={({ pressed }) => [
                 styles.createMenuButton,
@@ -4570,7 +5678,8 @@ export default function MyRegionsScreen() {
               <ThemedText type="smallBold">Add Pokemon</ThemedText>
             </Pressable>
             <View style={styles.actionRow}>
-              <Pressable disabled={contentReadOnly}
+              <Pressable
+                disabled={contentReadOnly}
                 onPress={saveRoute}
                 style={({ pressed }) => [
                   styles.createMenuButton,
@@ -4731,10 +5840,7 @@ const baseStyles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
-    shadowColor: "#000000",
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    boxShadow: "0px 8px 16px rgba(0, 0, 0, 0.14)",
     elevation: 3,
   },
   regionName: {
@@ -4756,6 +5862,13 @@ const baseStyles = StyleSheet.create({
   unfinishedFilterText: {
     textAlign: "center",
     flexShrink: 1,
+  },
+  bulkSelectRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 16,
+    marginTop: 16,
   },
   regionList: {
     gap: 16,
@@ -4780,6 +5893,13 @@ const baseStyles = StyleSheet.create({
     alignItems: "stretch",
     justifyContent: "space-between",
     gap: 16,
+  },
+  regionSelectCheckbox: {
+    alignSelf: "flex-start",
+    minHeight: 32,
+    minWidth: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
   regionMetaRow: {
     flexDirection: "row",
@@ -4963,6 +6083,12 @@ const baseStyles = StyleSheet.create({
     gap: 8,
     alignItems: "flex-start",
   },
+  liveConflictBanner: {
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(180, 120, 50, 0.25)",
+  },
   importExportModal: {
     width: "100%",
     maxWidth: 640,
@@ -5096,16 +6222,19 @@ const baseStyles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: "rgba(60, 135, 247, 0.8)",
   },
+  mapViewport: {
+    maxHeight: 540,
+    borderRadius: 12,
+  },
   mapCanvas: {
     minWidth: 490,
-    flex: 1,
-    height: 540,
-    overflow: "hidden",
+    minHeight: 540,
     position: "relative",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.18)",
     backgroundColor: "#6b9f67",
+    ...(Platform.OS === "web" ? { userSelect: "none" } : null),
   },
   mapWater: {
     position: "absolute",
@@ -5143,41 +6272,35 @@ const baseStyles = StyleSheet.create({
   },
   routeConnector: {
     position: "absolute",
-    height: 14,
-    borderRadius: 8,
-    backgroundColor: "#b88b52",
+    height: 16,
+    transformOrigin: "0% 50%",
+  },
+  roadSurface: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: "rgba(91, 61, 31, 0.28)",
+    borderColor: "rgba(40, 34, 28, 0.6)",
   },
-  routePathSegmentA: {
+  roadDashRow: {
     position: "absolute",
-    top: 28,
-    left: -12,
-    width: 54,
-    height: 12,
-    borderRadius: 12,
-    backgroundColor: "#c49b62",
-    transform: [{ rotate: "22deg" }],
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
   },
-  routePathSegmentB: {
+  roadDash: {
     position: "absolute",
-    top: 16,
-    left: 22,
-    width: 52,
-    height: 12,
-    borderRadius: 12,
-    backgroundColor: "#d2ad72",
-    transform: [{ rotate: "-18deg" }],
-  },
-  routePathSegmentC: {
-    position: "absolute",
-    top: 30,
-    left: 54,
-    width: 52,
-    height: 12,
-    borderRadius: 12,
-    backgroundColor: "#b88b52",
-    transform: [{ rotate: "28deg" }],
+    top: "50%",
+    width: 10,
+    height: 3,
+    marginTop: -1.5,
+    borderRadius: 2,
+    backgroundColor: "#f3d35e",
   },
   routePathLabel: {
     position: "absolute",
@@ -5205,10 +6328,9 @@ const baseStyles = StyleSheet.create({
     minWidth: 22,
     textAlign: "center",
     color: "#fff5ca",
-    textShadowColor: "rgba(64, 39, 18, 0.8)",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
-  },
+    // RN's TS types haven't caught up to the runtime "textShadow" style prop yet.
+    textShadow: "1px 1px 2px rgba(64, 39, 18, 0.8)",
+  } as unknown as TextStyle,
   gymCountMenu: {
     width: "100%",
     maxWidth: 440,
@@ -5247,6 +6369,7 @@ const baseStyles = StyleSheet.create({
   },
   routeActionRow: {
     flexDirection: "row",
+    justifyContent: "center",
     gap: 8,
   },
   removeRouteButton: {

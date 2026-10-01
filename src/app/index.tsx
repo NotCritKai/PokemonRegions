@@ -23,7 +23,11 @@ export default function HomeScreen() {
             <ThemedText type="title" style={styles.title}>
               Pokemon Regions
             </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.heroSubtitle}
+            >
               Build a region, track your team, and shape your own Pokémon world.
             </ThemedText>
           </ThemedView>
@@ -34,8 +38,8 @@ export default function HomeScreen() {
 
           <ThemedText type="small" style={styles.storageHint}>
             Your work is saved in this browser. Sign in to sync supported data
-            with your account, and check Account for cloud save status. Export
-            a full backup from Settings before clearing browser site data.
+            with your account, and check Account for cloud save status. Export a
+            full backup from Settings before clearing browser site data.
           </ThemedText>
 
           <ThemedView type="backgroundElement" style={styles.stepContainer}>
@@ -140,10 +144,7 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.four,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
-    shadowColor: "#000000",
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
+    boxShadow: "0px 6px 12px rgba(0, 0, 0, 0.12)",
     elevation: 3,
   },
 });

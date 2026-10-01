@@ -2,19 +2,19 @@ import { useResponsiveActions } from "@/hooks/use-responsive-actions";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
 } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
-import { readLocalData, saveLocalData } from "@/utils/local-data";
-import { confirmDeleteAction } from "@/utils/delete-confirmation";
 import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
+import { confirmDeleteAction } from "@/utils/delete-confirmation";
+import { readLocalData, saveLocalData } from "@/utils/local-data";
 
 const GIMMICKS_STORAGE_KEY = "pokemon-gimmicks";
 const gimmickCategories = [
@@ -47,13 +47,17 @@ type Gimmick = {
 };
 
 export default function MyGimmicksScreen() {
-  const styles = useResponsiveActions(baseStyles, ["gimmickRow", "categoryOptions", "regionOptions"], ["gimmickDetails"]);
+  const styles = useResponsiveActions(
+    baseStyles,
+    ["gimmickRow", "categoryOptions", "regionOptions"],
+    ["gimmickDetails"],
+  );
   const [gimmicks, setGimmicks] = useState<Gimmick[]>([]);
   const [hasLoadedGimmicks, setHasLoadedGimmicks] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-  const [editingGimmickIndex, setEditingGimmickIndex] = useState<
-    number | null
-  >(null);
+  const [editingGimmickIndex, setEditingGimmickIndex] = useState<number | null>(
+    null,
+  );
   const [gimmickName, setGimmickName] = useState("");
   const [gimmickCategory, setGimmickCategory] = useState("");
   const [gimmickDescription, setGimmickDescription] = useState("");
@@ -85,10 +89,7 @@ export default function MyGimmicksScreen() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoadedGimmicks) {
-      saveLocalData(
-        GIMMICKS_STORAGE_KEY,
-        JSON.stringify(gimmicks),
-      );
+      saveLocalData(GIMMICKS_STORAGE_KEY, JSON.stringify(gimmicks));
     }
   }, [gimmicks, hasLoadedGimmicks]);
 
@@ -174,107 +175,120 @@ export default function MyGimmicksScreen() {
         showsVerticalScrollIndicator
         style={styles.screenScroll}
       >
-      <ThemedText type="title">My Gimmicks</ThemedText>
-      {gimmicks.length === 0 ? (
-        <ThemedView style={styles.emptyState}>
-          <ThemedText type="subtitle">
-            Don&apos;t Have A Gimmick?
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
-            Save battle mechanics and connect them to the regions that use them.
-          </ThemedText>
-          <Pressable
-            onPress={openCreateMenu}
-            style={({ pressed }) => pressed && styles.pressed}
-          >
-            <ThemedView type="backgroundElement" style={styles.createButton}>
-              <ThemedText type="smallBold">Make One Now</ThemedText>
-            </ThemedView>
-          </Pressable>
-        </ThemedView>
-      ) : (
-        <View style={styles.gimmicksSection}>
-          <ThemedView type="backgroundElement" style={styles.gimmicksArea}>
-            <View style={styles.searchRow}>
-              <TextInput
-                autoCapitalize="none"
-                onChangeText={setGimmickSearch}
-                placeholder="Search gimmicks"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                style={styles.searchInput}
-                value={gimmickSearch}
-              />
-            </View>
-            {filteredGimmicks.length === 0 ? (
-              <ThemedText type="small" style={styles.noResultsText}>
-                No gimmicks match this search.
-              </ThemedText>
-            ) : (
-              <View style={styles.gimmickList}>
-                {filteredGimmicks.map((gimmick, index) => {
-                  const originalIndex = gimmicks.findIndex(
-                    (item) =>
-                      item.name === gimmick.name &&
-                      item.category === gimmick.category &&
-                      item.description === gimmick.description,
-                  );
+        <ThemedText type="title">My Gimmicks</ThemedText>
+        {gimmicks.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <ThemedText type="subtitle">Don&apos;t Have A Gimmick?</ThemedText>
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.emptyDescription}
+            >
+              Save battle mechanics and connect them to the regions that use
+              them.
+            </ThemedText>
+            <Pressable
+              onPress={openCreateMenu}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <ThemedView type="backgroundElement" style={styles.createButton}>
+                <ThemedText type="smallBold">Make One Now</ThemedText>
+              </ThemedView>
+            </Pressable>
+          </ThemedView>
+        ) : (
+          <View style={styles.gimmicksSection}>
+            <ThemedView type="backgroundElement" style={styles.gimmicksArea}>
+              <View style={styles.searchRow}>
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={setGimmickSearch}
+                  placeholder="Search gimmicks"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  style={styles.searchInput}
+                  value={gimmickSearch}
+                />
+              </View>
+              {filteredGimmicks.length === 0 ? (
+                <ThemedText type="small" style={styles.noResultsText}>
+                  No gimmicks match this search.
+                </ThemedText>
+              ) : (
+                <View style={styles.gimmickList}>
+                  {filteredGimmicks.map((gimmick, index) => {
+                    const originalIndex = gimmicks.findIndex(
+                      (item) =>
+                        item.name === gimmick.name &&
+                        item.category === gimmick.category &&
+                        item.description === gimmick.description,
+                    );
 
-                  return (
-                    <View key={`${gimmick.name}-${index}`} style={styles.gimmickRow}>
-                      <View style={styles.gimmickDetails}>
-                        <View style={styles.gimmickHeading}>
-                          <ThemedText
-                            type="subtitle"
-                            adjustsFontSizeToFit
-                            minimumFontScale={0.45}
-                            numberOfLines={1}
-                            style={styles.gimmickName}
-                          >
-                            {gimmick.name}
-                          </ThemedText>
-                          {gimmick.category ? (
-                            <ThemedText type="small" style={styles.categoryBadge}>
-                              {gimmick.category}
+                    return (
+                      <View
+                        key={`${gimmick.name}-${index}`}
+                        style={styles.gimmickRow}
+                      >
+                        <View style={styles.gimmickDetails}>
+                          <View style={styles.gimmickHeading}>
+                            <ThemedText
+                              type="subtitle"
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.45}
+                              numberOfLines={1}
+                              style={styles.gimmickName}
+                            >
+                              {gimmick.name}
+                            </ThemedText>
+                            {gimmick.category ? (
+                              <ThemedText
+                                type="small"
+                                style={styles.categoryBadge}
+                              >
+                                {gimmick.category}
+                              </ThemedText>
+                            ) : null}
+                          </View>
+                          {gimmick.description ? (
+                            <ThemedText type="small" style={styles.description}>
+                              {gimmick.description}
                             </ThemedText>
                           ) : null}
                         </View>
-                        {gimmick.description ? (
-                          <ThemedText type="small" style={styles.description}>
-                            {gimmick.description}
-                          </ThemedText>
-                        ) : null}
+                        <Pressable
+                          accessibilityLabel={`Edit ${gimmick.name}`}
+                          accessibilityRole="button"
+                          onPress={() => openEditMenu(originalIndex)}
+                          style={({ pressed }) => pressed && styles.pressed}
+                        >
+                          <SymbolView
+                            name={{
+                              ios: "pencil",
+                              android: "edit",
+                              web: "edit",
+                            }}
+                            size={20}
+                            tintColor={theme.text}
+                          />
+                        </Pressable>
                       </View>
-                      <Pressable
-                        accessibilityLabel={`Edit ${gimmick.name}`}
-                        accessibilityRole="button"
-                        onPress={() => openEditMenu(originalIndex)}
-                        style={({ pressed }) => pressed && styles.pressed}
-                      >
-                        <SymbolView
-                          name={{ ios: "pencil", android: "edit", web: "edit" }}
-                          size={20}
-                          tintColor={theme.text}
-                        />
-                      </Pressable>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </ThemedView>
-          <Pressable
-            accessibilityLabel="Create another gimmick"
-            accessibilityRole="button"
-            onPress={openCreateMenu}
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText type="subtitle">+</ThemedText>
-          </Pressable>
-        </View>
-      )}
+                    );
+                  })}
+                </View>
+              )}
+            </ThemedView>
+            <Pressable
+              accessibilityLabel="Create another gimmick"
+              accessibilityRole="button"
+              onPress={openCreateMenu}
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="subtitle">+</ThemedText>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
 
       <Modal
@@ -289,112 +303,118 @@ export default function MyGimmicksScreen() {
             showsVerticalScrollIndicator
             style={styles.modalScroll}
           >
-          <ThemedView type="backgroundElement" style={styles.menu}>
-            <ThemedText type="subtitle" style={styles.menuTitle}>
-              {editingGimmickIndex === null
-                ? "Create A Gimmick"
-                : `Edit ${gimmickName}`}
-            </ThemedText>
-
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Gimmick Name</ThemedText>
-              <TextInput
-                placeholder="e.x. Terastallization"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                onChangeText={setGimmickName}
-                style={styles.input}
-                value={gimmickName}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Gimmick Category</ThemedText>
-              <View style={styles.categoryOptions}>
-                {gimmickCategories.map((category) => (
-                  <Pressable
-                    key={category}
-                    onPress={() => selectGimmickCategory(category)}
-                    style={[
-                      styles.categoryOption,
-                      gimmickCategory === category && styles.selectedOption,
-                    ]}
-                  >
-                    <ThemedText type="small">{category}</ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-              {categorySummaryVisible && gimmickCategory ? (
-                <ThemedView type="backgroundElement" style={styles.categorySummary}>
-                  <View style={styles.categorySummaryText}>
-                    <ThemedText type="smallBold">{gimmickCategory}</ThemedText>
-                    <ThemedText type="small">
-                      {gimmickCategorySummaries[gimmickCategory]}
-                    </ThemedText>
-                  </View>
-                  <Pressable
-                    accessibilityLabel="Close category summary"
-                    accessibilityRole="button"
-                    onPress={() => setCategorySummaryVisible(false)}
-                    style={({ pressed }) => [
-                      styles.summaryCloseButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ThemedText type="smallBold">Got it</ThemedText>
-                  </Pressable>
-                </ThemedView>
-              ) : null}
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <ThemedText type="smallBold">Description</ThemedText>
-              <TextInput
-                multiline
-                numberOfLines={4}
-                placeholder="How does this gimmick work?"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                onChangeText={setGimmickDescription}
-                style={[styles.input, styles.descriptionInput]}
-                textAlignVertical="top"
-                value={gimmickDescription}
-              />
-            </View>
-
-
-            <Pressable
-              onPress={saveGimmick}
-              style={({ pressed }) => [
-                styles.saveButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold">
-                {editingGimmickIndex === null ? "Create Gimmick" : "Save Changes"}
+            <ThemedView type="backgroundElement" style={styles.menu}>
+              <ThemedText type="subtitle" style={styles.menuTitle}>
+                {editingGimmickIndex === null
+                  ? "Create A Gimmick"
+                  : `Edit ${gimmickName}`}
               </ThemedText>
-            </Pressable>
 
-            {editingGimmickIndex !== null ? (
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Gimmick Name</ThemedText>
+                <TextInput
+                  placeholder="e.x. Terastallization"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  onChangeText={setGimmickName}
+                  style={styles.input}
+                  value={gimmickName}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Gimmick Category</ThemedText>
+                <View style={styles.categoryOptions}>
+                  {gimmickCategories.map((category) => (
+                    <Pressable
+                      key={category}
+                      onPress={() => selectGimmickCategory(category)}
+                      style={[
+                        styles.categoryOption,
+                        gimmickCategory === category && styles.selectedOption,
+                      ]}
+                    >
+                      <ThemedText type="small">{category}</ThemedText>
+                    </Pressable>
+                  ))}
+                </View>
+                {categorySummaryVisible && gimmickCategory ? (
+                  <ThemedView
+                    type="backgroundElement"
+                    style={styles.categorySummary}
+                  >
+                    <View style={styles.categorySummaryText}>
+                      <ThemedText type="smallBold">
+                        {gimmickCategory}
+                      </ThemedText>
+                      <ThemedText type="small">
+                        {gimmickCategorySummaries[gimmickCategory]}
+                      </ThemedText>
+                    </View>
+                    <Pressable
+                      accessibilityLabel="Close category summary"
+                      accessibilityRole="button"
+                      onPress={() => setCategorySummaryVisible(false)}
+                      style={({ pressed }) => [
+                        styles.summaryCloseButton,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <ThemedText type="smallBold">Got it</ThemedText>
+                    </Pressable>
+                  </ThemedView>
+                ) : null}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <ThemedText type="smallBold">Description</ThemedText>
+                <TextInput
+                  multiline
+                  numberOfLines={4}
+                  placeholder="How does this gimmick work?"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  onChangeText={setGimmickDescription}
+                  style={[styles.input, styles.descriptionInput]}
+                  textAlignVertical="top"
+                  value={gimmickDescription}
+                />
+              </View>
+
               <Pressable
-                onPress={confirmDeleteGimmick}
+                onPress={saveGimmick}
                 style={({ pressed }) => [
-                  styles.deleteButton,
+                  styles.saveButton,
                   pressed && styles.pressed,
                 ]}
               >
-                <ThemedText type="smallBold">Delete Gimmick</ThemedText>
+                <ThemedText type="smallBold">
+                  {editingGimmickIndex === null
+                    ? "Create Gimmick"
+                    : "Save Changes"}
+                </ThemedText>
               </Pressable>
-            ) : null}
 
-            <Pressable
-              onPress={() => setMenuVisible(false)}
-              style={({ pressed }) => [
-                styles.closeButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold">Close</ThemedText>
-            </Pressable>
-          </ThemedView>
+              {editingGimmickIndex !== null ? (
+                <Pressable
+                  onPress={confirmDeleteGimmick}
+                  style={({ pressed }) => [
+                    styles.deleteButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">Delete Gimmick</ThemedText>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                onPress={() => setMenuVisible(false)}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ThemedText type="smallBold">Close</ThemedText>
+              </Pressable>
+            </ThemedView>
           </ScrollView>
         </View>
       </Modal>
@@ -453,10 +473,7 @@ const baseStyles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
-    shadowColor: "#000000",
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    boxShadow: "0px 8px 16px rgba(0, 0, 0, 0.14)",
     elevation: 3,
   },
   searchRow: {

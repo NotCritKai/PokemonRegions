@@ -1,20 +1,20 @@
 import { useResponsiveActions } from "@/hooks/use-responsive-actions";
-import { Image } from "expo-image";
 import { readLocalData, saveLocalData } from "@/utils/local-data";
+import { Image } from "expo-image";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
 } from "react-native";
 
 import { getPokemon, type Pokemon } from "@/api/pokemon";
-import { confirmDeleteAction } from "@/utils/delete-confirmation";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { confirmDeleteAction } from "@/utils/delete-confirmation";
 
 const APP_STORAGE_VERSION = "v2";
 const POKEMON_STORAGE_KEY = "pokemon-team";
@@ -87,7 +87,17 @@ function getNormalizedTypes(types: string[]) {
 }
 
 export default function MyPokemonScreen() {
-  const styles = useResponsiveActions(baseStyles, ["rowActions", "evolutionCardActions", "actionRow", "typeRow", "evolutionParentOptions"], []);
+  const styles = useResponsiveActions(
+    baseStyles,
+    [
+      "rowActions",
+      "evolutionCardActions",
+      "actionRow",
+      "typeRow",
+      "evolutionParentOptions",
+    ],
+    [],
+  );
   const [savedPokemon, setSavedPokemon] = useState<SavedPokemon[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [allPokemon, setAllPokemon] = useState<Pokemon[]>([]);
@@ -102,7 +112,9 @@ export default function MyPokemonScreen() {
   const [favorite, setFavorite] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [hasEvolutions, setHasEvolutions] = useState(false);
-  const [evolutionEntries, setEvolutionEntries] = useState<EvolutionEntry[]>([]);
+  const [evolutionEntries, setEvolutionEntries] = useState<EvolutionEntry[]>(
+    [],
+  );
   const [listSearch, setListSearch] = useState("");
   const [showFavoriteOnly, setShowFavoriteOnly] = useState(false);
   const [evolutionModalVisible, setEvolutionModalVisible] = useState(false);
@@ -112,8 +124,12 @@ export default function MyPokemonScreen() {
   const [evolutionDraftTypes, setEvolutionDraftTypes] = useState<string[]>([]);
   const [evolutionDraftStage, setEvolutionDraftStage] = useState(1);
   const [evolutionDraftLevel, setEvolutionDraftLevel] = useState(1);
-  const [evolutionSelectedParent, setEvolutionSelectedParent] = useState<string | null>(null);
-  const [editingEvolutionIndex, setEditingEvolutionIndex] = useState<number | null>(null);
+  const [evolutionSelectedParent, setEvolutionSelectedParent] = useState<
+    string | null
+  >(null);
+  const [editingEvolutionIndex, setEditingEvolutionIndex] = useState<
+    number | null
+  >(null);
   const [evolutionError, setEvolutionError] = useState("");
 
   useEffect(() => {
@@ -135,12 +151,32 @@ export default function MyPokemonScreen() {
             types: Array.isArray(entry.types) ? entry.types : [],
             evolutions: Array.isArray(entry.evolutions)
               ? entry.evolutions.map((evolution) => ({
-                  name: typeof evolution === "string" ? evolution : evolution?.name ?? "",
-                  imageUrl: typeof evolution === "string" ? "" : evolution?.imageUrl ?? "",
-                  types: typeof evolution === "string" ? [] : Array.isArray(evolution?.types) ? evolution.types : [],
-                  stage: typeof evolution === "string" ? 1 : Number(evolution?.stage ?? 1),
-                  level: typeof evolution === "string" ? 1 : Number(evolution?.level ?? 1),
-                  parentName: typeof evolution === "string" ? null : evolution?.parentName ?? null,
+                  name:
+                    typeof evolution === "string"
+                      ? evolution
+                      : (evolution?.name ?? ""),
+                  imageUrl:
+                    typeof evolution === "string"
+                      ? ""
+                      : (evolution?.imageUrl ?? ""),
+                  types:
+                    typeof evolution === "string"
+                      ? []
+                      : Array.isArray(evolution?.types)
+                        ? evolution.types
+                        : [],
+                  stage:
+                    typeof evolution === "string"
+                      ? 1
+                      : Number(evolution?.stage ?? 1),
+                  level:
+                    typeof evolution === "string"
+                      ? 1
+                      : Number(evolution?.level ?? 1),
+                  parentName:
+                    typeof evolution === "string"
+                      ? null
+                      : (evolution?.parentName ?? null),
                 }))
               : [],
           })),
@@ -155,27 +191,54 @@ export default function MyPokemonScreen() {
       window.localStorage.getItem(LEGACY_CUSTOM_POKEMON_STORAGE_KEY);
     if (storedCustom) {
       try {
-        const parsed = JSON.parse(storedCustom) as Partial<CustomPokemonEntry>[];
+        const parsed = JSON.parse(
+          storedCustom,
+        ) as Partial<CustomPokemonEntry>[];
         setCustomPokemon(
           parsed
-            .filter((entry): entry is Partial<CustomPokemonEntry> => !!entry && typeof entry.name === "string")
+            .filter(
+              (entry): entry is Partial<CustomPokemonEntry> =>
+                !!entry && typeof entry.name === "string",
+            )
             .map((entry) => ({
               name: entry.name ?? "",
               imageUrl: entry.imageUrl ?? "",
               types: Array.isArray(entry.types) ? entry.types : [],
-              generation: typeof entry.generation === "number" ? entry.generation : 9,
+              generation:
+                typeof entry.generation === "number" ? entry.generation : 9,
               evolutions: Array.isArray(entry.evolutions)
                 ? entry.evolutions.map((evolution) => ({
-                    name: typeof evolution === "string" ? evolution : evolution?.name ?? "",
-                    imageUrl: typeof evolution === "string" ? "" : evolution?.imageUrl ?? "",
-                    types: typeof evolution === "string" ? [] : Array.isArray(evolution?.types) ? evolution.types : [],
-                    stage: typeof evolution === "string" ? 1 : Number(evolution?.stage ?? 1),
-                    level: typeof evolution === "string" ? 1 : Number(evolution?.level ?? 1),
-                    parentName: typeof evolution === "string" ? null : evolution?.parentName ?? null,
+                    name:
+                      typeof evolution === "string"
+                        ? evolution
+                        : (evolution?.name ?? ""),
+                    imageUrl:
+                      typeof evolution === "string"
+                        ? ""
+                        : (evolution?.imageUrl ?? ""),
+                    types:
+                      typeof evolution === "string"
+                        ? []
+                        : Array.isArray(evolution?.types)
+                          ? evolution.types
+                          : [],
+                    stage:
+                      typeof evolution === "string"
+                        ? 1
+                        : Number(evolution?.stage ?? 1),
+                    level:
+                      typeof evolution === "string"
+                        ? 1
+                        : Number(evolution?.level ?? 1),
+                    parentName:
+                      typeof evolution === "string"
+                        ? null
+                        : (evolution?.parentName ?? null),
                   }))
                 : [],
               isCustom: true,
-              parentName: typeof entry.parentName === "string" ? entry.parentName : null,
+              parentName:
+                typeof entry.parentName === "string" ? entry.parentName : null,
               stage: typeof entry.stage === "number" ? entry.stage : 1,
               level: typeof entry.level === "number" ? entry.level : 1,
             })),
@@ -190,19 +253,13 @@ export default function MyPokemonScreen() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoaded) {
-      saveLocalData(
-        POKEMON_STORAGE_KEY,
-        JSON.stringify(savedPokemon),
-      );
+      saveLocalData(POKEMON_STORAGE_KEY, JSON.stringify(savedPokemon));
     }
   }, [savedPokemon, hasLoaded]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && hasLoaded) {
-      saveLocalData(
-        CUSTOM_POKEMON_STORAGE_KEY,
-        JSON.stringify(customPokemon),
-      );
+      saveLocalData(CUSTOM_POKEMON_STORAGE_KEY, JSON.stringify(customPokemon));
       window.localStorage.removeItem(LEGACY_CUSTOM_POKEMON_STORAGE_KEY);
     }
   }, [customPokemon, hasLoaded]);
@@ -244,7 +301,8 @@ export default function MyPokemonScreen() {
   );
 
   function openImagePicker(target: "main" | "evolution") {
-    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
 
     const input = document.createElement("input");
     input.type = "file";
@@ -312,24 +370,29 @@ export default function MyPokemonScreen() {
     if (!trimmedName) return;
     if (
       evolutionEntries.some(
-        (entry, index) => index !== editingEvolutionIndex && entry.name === trimmedName,
+        (entry, index) =>
+          index !== editingEvolutionIndex && entry.name === trimmedName,
       )
     ) {
       setEvolutionError("Each evolution must have a unique name.");
       return;
     }
-    const existingEntry = customPokemon.find((entry) => entry.name === trimmedName);
-    setEvolutionEntries((current) => [
-      ...current,
-      {
-        name: trimmedName,
-        imageUrl: existingEntry?.imageUrl ?? "",
-        types: existingEntry?.types ?? [],
-        stage: evolutionDraftStage,
-        level: evolutionDraftLevel,
-        parentName: evolutionSelectedParent || selectedName || null,
-      },
-    ].slice(0, 2));
+    const existingEntry = customPokemon.find(
+      (entry) => entry.name === trimmedName,
+    );
+    setEvolutionEntries((current) =>
+      [
+        ...current,
+        {
+          name: trimmedName,
+          imageUrl: existingEntry?.imageUrl ?? "",
+          types: existingEntry?.types ?? [],
+          stage: evolutionDraftStage,
+          level: evolutionDraftLevel,
+          parentName: evolutionSelectedParent || selectedName || null,
+        },
+      ].slice(0, 2),
+    );
     setEvolutionModalVisible(false);
   }
 
@@ -345,7 +408,8 @@ export default function MyPokemonScreen() {
     }
     if (
       evolutionEntries.some(
-        (entry, index) => index !== editingEvolutionIndex && entry.name === name,
+        (entry, index) =>
+          index !== editingEvolutionIndex && entry.name === name,
       )
     ) {
       setEvolutionError("Each evolution must have a unique name.");
@@ -369,7 +433,8 @@ export default function MyPokemonScreen() {
         editingEvolutionIndex === null
           ? [...current, entry]
           : current.map((currentEntry) =>
-              currentEntry.name === evolutionEntries[editingEvolutionIndex]?.name
+              currentEntry.name ===
+              evolutionEntries[editingEvolutionIndex]?.name
                 ? entry
                 : currentEntry,
             );
@@ -385,7 +450,8 @@ export default function MyPokemonScreen() {
         level: evolutionDraftLevel,
         parentName: evolutionSelectedParent || selectedName || null,
       };
-      if (editingEvolutionIndex === null) return [...current, nextEntry].slice(0, 2);
+      if (editingEvolutionIndex === null)
+        return [...current, nextEntry].slice(0, 2);
       return current.map((item, index) =>
         index === editingEvolutionIndex ? nextEntry : item,
       );
@@ -448,13 +514,15 @@ export default function MyPokemonScreen() {
       favorite,
       imageUrl: imageUrl.trim(),
       types: getNormalizedTypes(selectedTypes),
-      evolutions: evolutionEntries.map((entry) => ({
-        ...entry,
-        name: entry.name.trim(),
-        imageUrl: entry.imageUrl.trim(),
-        types: getNormalizedTypes(entry.types),
-        parentName: entry.parentName || name,
-      })).filter((entry) => entry.name),
+      evolutions: evolutionEntries
+        .map((entry) => ({
+          ...entry,
+          name: entry.name.trim(),
+          imageUrl: entry.imageUrl.trim(),
+          types: getNormalizedTypes(entry.types),
+          parentName: entry.parentName || name,
+        }))
+        .filter((entry) => entry.name),
     };
 
     const customEntries: CustomPokemonEntry[] = [
@@ -504,7 +572,9 @@ export default function MyPokemonScreen() {
 
   function deletePokemon(index: number) {
     if (index < 0) return;
-    setSavedPokemon((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setSavedPokemon((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
     setMenuVisible(false);
   }
 
@@ -525,160 +595,201 @@ export default function MyPokemonScreen() {
         showsVerticalScrollIndicator
         style={styles.screenScroll}
       >
-      <ThemedText type="title">My Pokemon</ThemedText>
+        <ThemedText type="title">My Pokemon</ThemedText>
 
-      {savedPokemon.length === 0 ? (
-        <ThemedView style={styles.emptyState}>
-          <ThemedText type="subtitle">Don&apos;t Have A Pokemon?</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyDescription}>
-            Track your team, favorites, notes, types, and evolution details.
-          </ThemedText>
-          <Pressable onPress={openCreateMenu} style={({ pressed }) => pressed && styles.pressed}>
-            <ThemedView type="backgroundElement" style={styles.createButton}>
-              <ThemedText type="smallBold">Create One Now</ThemedText>
-            </ThemedView>
-          </Pressable>
-        </ThemedView>
-      ) : (
-        <View style={styles.listSection}>
-          <ThemedView type="backgroundElement" style={styles.listArea}>
-            <View style={styles.listControls}>
-              <TextInput
-                autoCapitalize="none"
-                onChangeText={setListSearch}
-                placeholder="Search saved Pokémon"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                style={styles.listSearch}
-                value={listSearch}
-              />
-              <Pressable
-                onPress={() => setShowFavoriteOnly((current) => !current)}
-                style={({ pressed }) => [
-                  styles.filterToggle,
-                  showFavoriteOnly && styles.filterToggleActive,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <ThemedText type="smallBold">
-                  {showFavoriteOnly ? "Favorites Only" : "Favorites Filter"}
+        {savedPokemon.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <ThemedText type="subtitle">Don&apos;t Have A Pokemon?</ThemedText>
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.emptyDescription}
+            >
+              Track your team, favorites, notes, types, and evolution details.
+            </ThemedText>
+            <Pressable
+              onPress={openCreateMenu}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <ThemedView type="backgroundElement" style={styles.createButton}>
+                <ThemedText type="smallBold">Create One Now</ThemedText>
+              </ThemedView>
+            </Pressable>
+          </ThemedView>
+        ) : (
+          <View style={styles.listSection}>
+            <ThemedView type="backgroundElement" style={styles.listArea}>
+              <View style={styles.listControls}>
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={setListSearch}
+                  placeholder="Search saved Pokémon"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  style={styles.listSearch}
+                  value={listSearch}
+                />
+                <Pressable
+                  onPress={() => setShowFavoriteOnly((current) => !current)}
+                  style={({ pressed }) => [
+                    styles.filterToggle,
+                    showFavoriteOnly && styles.filterToggleActive,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <ThemedText type="smallBold">
+                    {showFavoriteOnly ? "Favorites Only" : "Favorites Filter"}
+                  </ThemedText>
+                </Pressable>
+              </View>
+              {displayedPokemon.length === 0 ? (
+                <ThemedText type="small" style={styles.noResultsText}>
+                  No saved Pokémon match that search.
                 </ThemedText>
-              </Pressable>
-            </View>
-            {displayedPokemon.length === 0 ? (
-              <ThemedText type="small" style={styles.noResultsText}>
-                No saved Pokémon match that search.
-              </ThemedText>
-            ) : (
-              <View style={styles.list}>
-                {displayedPokemon.map(({ entry, index }) => {
-                const currentPokemon = allPokemon.find((option) => option.name === entry.name);
-                return (
-                  <View key={`${entry.name}-${index}`} style={styles.pokemonCard}>
-                    <View style={styles.pokemonRow}>
-                      <View style={styles.pokemonSummary}>
-                        {entry.imageUrl || (currentPokemon ? getPokemonImageUrl(currentPokemon.url) : "") ? (
-                          <Image
-                            source={{
-                              uri: entry.imageUrl || getPokemonImageUrl(currentPokemon?.url ?? ""),
-                            }}
-                            style={styles.sprite}
-                          />
-                        ) : null}
-                        <View style={styles.pokemonTextWrap}>
-                          <ThemedText type="subtitle" style={styles.pokemonName}>
-                            {entry.nickname || formatPokemonName(entry.name)}
-                          </ThemedText>
-                          <ThemedText type="small">
-                            {entry.nickname ? formatPokemonName(entry.name) : ""}
-                          </ThemedText>
-                          {entry.types.length > 0 ? (
-                            <ThemedText type="small">
-                              Types: {entry.types.map((type) => formatPokemonName(type)).join(", ")}
-                            </ThemedText>
-                          ) : null}
-                          {entry.evolutions.length > 0 ? (
-                            <ThemedText type="small">
-                              Evolutions: {entry.evolutions.map((evolution) => `${formatPokemonName(evolution.name)} (Stage ${evolution.stage}, Lv ${evolution.level})`).join(", ")}
-                            </ThemedText>
-                          ) : null}
-                          {entry.region ? (
-                            <ThemedText type="small">Region: {entry.region}</ThemedText>
-                          ) : null}
-                          {entry.notes ? (
-                            <ThemedText type="small">Notes: {entry.notes}</ThemedText>
-                          ) : null}
+              ) : (
+                <View style={styles.list}>
+                  {displayedPokemon.map(({ entry, index }) => {
+                    const currentPokemon = allPokemon.find(
+                      (option) => option.name === entry.name,
+                    );
+                    return (
+                      <View
+                        key={`${entry.name}-${index}`}
+                        style={styles.pokemonCard}
+                      >
+                        <View style={styles.pokemonRow}>
+                          <View style={styles.pokemonSummary}>
+                            {entry.imageUrl ||
+                            (currentPokemon
+                              ? getPokemonImageUrl(currentPokemon.url)
+                              : "") ? (
+                              <Image
+                                source={{
+                                  uri:
+                                    entry.imageUrl ||
+                                    getPokemonImageUrl(
+                                      currentPokemon?.url ?? "",
+                                    ),
+                                }}
+                                style={styles.sprite}
+                              />
+                            ) : null}
+                            <View style={styles.pokemonTextWrap}>
+                              <ThemedText
+                                type="subtitle"
+                                style={styles.pokemonName}
+                              >
+                                {entry.nickname ||
+                                  formatPokemonName(entry.name)}
+                              </ThemedText>
+                              <ThemedText type="small">
+                                {entry.nickname
+                                  ? formatPokemonName(entry.name)
+                                  : ""}
+                              </ThemedText>
+                              {entry.types.length > 0 ? (
+                                <ThemedText type="small">
+                                  Types:{" "}
+                                  {entry.types
+                                    .map((type) => formatPokemonName(type))
+                                    .join(", ")}
+                                </ThemedText>
+                              ) : null}
+                              {entry.evolutions.length > 0 ? (
+                                <ThemedText type="small">
+                                  Evolutions:{" "}
+                                  {entry.evolutions
+                                    .map(
+                                      (evolution) =>
+                                        `${formatPokemonName(evolution.name)} (Stage ${evolution.stage}, Lv ${evolution.level})`,
+                                    )
+                                    .join(", ")}
+                                </ThemedText>
+                              ) : null}
+                              {entry.region ? (
+                                <ThemedText type="small">
+                                  Region: {entry.region}
+                                </ThemedText>
+                              ) : null}
+                              {entry.notes ? (
+                                <ThemedText type="small">
+                                  Notes: {entry.notes}
+                                </ThemedText>
+                              ) : null}
+                            </View>
+                          </View>
+
+                          <View style={styles.rowActions}>
+                            <Pressable
+                              accessibilityLabel={`Favorite ${entry.name}`}
+                              accessibilityRole="button"
+                              onPress={() =>
+                                setSavedPokemon((current) =>
+                                  current.map((pokemon, pokemonIndex) =>
+                                    pokemonIndex === index
+                                      ? {
+                                          ...pokemon,
+                                          favorite: !pokemon.favorite,
+                                        }
+                                      : pokemon,
+                                  ),
+                                )
+                              }
+                              style={({ pressed }) => [
+                                styles.favoriteButton,
+                                entry.favorite && styles.favoriteButtonActive,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">
+                                {entry.favorite ? "★" : "☆"}
+                              </ThemedText>
+                            </Pressable>
+                            <Pressable
+                              accessibilityLabel={`Edit ${entry.name}`}
+                              accessibilityRole="button"
+                              onPress={() => openEditMenu(index)}
+                              style={({ pressed }) => [
+                                styles.secondaryAction,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">Edit</ThemedText>
+                            </Pressable>
+                            <Pressable
+                              accessibilityLabel={`Delete ${entry.name}`}
+                              accessibilityRole="button"
+                              onPress={() => confirmDeletePokemon(index)}
+                              style={({ pressed }) => [
+                                styles.deleteButton,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <ThemedText type="smallBold">Delete</ThemedText>
+                            </Pressable>
+                          </View>
                         </View>
                       </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ThemedView>
+          </View>
+        )}
 
-                      <View style={styles.rowActions}>
-                        <Pressable
-                          accessibilityLabel={`Favorite ${entry.name}`}
-                          accessibilityRole="button"
-                          onPress={() =>
-                            setSavedPokemon((current) =>
-                              current.map((pokemon, pokemonIndex) =>
-                                pokemonIndex === index
-                                  ? { ...pokemon, favorite: !pokemon.favorite }
-                                  : pokemon,
-                              ),
-                            )
-                          }
-                          style={({ pressed }) => [
-                            styles.favoriteButton,
-                            entry.favorite && styles.favoriteButtonActive,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ThemedText type="smallBold">
-                            {entry.favorite ? "★" : "☆"}
-                          </ThemedText>
-                        </Pressable>
-                        <Pressable
-                          accessibilityLabel={`Edit ${entry.name}`}
-                          accessibilityRole="button"
-                          onPress={() => openEditMenu(index)}
-                          style={({ pressed }) => [
-                            styles.secondaryAction,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ThemedText type="smallBold">Edit</ThemedText>
-                        </Pressable>
-                        <Pressable
-                          accessibilityLabel={`Delete ${entry.name}`}
-                          accessibilityRole="button"
-                          onPress={() => confirmDeletePokemon(index)}
-                          style={({ pressed }) => [
-                            styles.deleteButton,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ThemedText type="smallBold">Delete</ThemedText>
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
-                );
-                })}
-              </View>
-            )}
-          </ThemedView>
-        </View>
-      )}
-
-      {savedPokemon.length > 0 ? (
-        <Pressable
-          accessibilityLabel="Add another Pokemon"
-          accessibilityRole="button"
-          onPress={openCreateMenu}
-          style={({ pressed }) => [
-            styles.addButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <ThemedText type="subtitle">+</ThemedText>
-        </Pressable>
-      ) : null}
+        {savedPokemon.length > 0 ? (
+          <Pressable
+            accessibilityLabel="Add another Pokemon"
+            accessibilityRole="button"
+            onPress={openCreateMenu}
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="subtitle">+</ThemedText>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <Modal
@@ -688,7 +799,10 @@ export default function MyPokemonScreen() {
         visible={menuVisible}
       >
         <View style={styles.modalOverlay}>
-          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator>
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            showsVerticalScrollIndicator
+          >
             <ThemedView type="backgroundElement" style={styles.menu}>
               <ThemedText type="subtitle" style={styles.menuTitle}>
                 {editingIndex === null ? "Create A Pokemon" : "Edit Pokemon"}
@@ -697,7 +811,10 @@ export default function MyPokemonScreen() {
               <View style={styles.fieldGroup}>
                 <ThemedText type="smallBold">Pokemon Image?</ThemedText>
                 {imageUrl ? (
-                  <Image source={{ uri: imageUrl }} style={styles.previewImage} />
+                  <Image
+                    source={{ uri: imageUrl }}
+                    style={styles.previewImage}
+                  />
                 ) : null}
                 <Pressable
                   onPress={() => openImagePicker("main")}
@@ -776,7 +893,10 @@ export default function MyPokemonScreen() {
                 {hasEvolutions ? (
                   <View style={styles.evolutionList}>
                     {evolutionEntries.map((evolution, index) => (
-                      <View key={`${evolution.name}-${index}`} style={styles.evolutionCard}>
+                      <View
+                        key={`${evolution.name}-${index}`}
+                        style={styles.evolutionCard}
+                      >
                         <View style={styles.evolutionCardHeader}>
                           <View style={styles.evolutionCardDetails}>
                             <ThemedText type="smallBold">
@@ -788,7 +908,8 @@ export default function MyPokemonScreen() {
                                 : "Evolution path not selected"}
                             </ThemedText>
                             <ThemedText type="small">
-                              Stage: {evolution.stage} • Evolves At Level: {evolution.level}
+                              Stage: {evolution.stage} • Evolves At Level:{" "}
+                              {evolution.level}
                             </ThemedText>
                           </View>
                           <View style={styles.evolutionCardActions}>
@@ -920,7 +1041,10 @@ export default function MyPokemonScreen() {
         visible={evolutionModalVisible}
       >
         <View style={styles.modalOverlay}>
-          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator>
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            showsVerticalScrollIndicator
+          >
             <ThemedView type="backgroundElement" style={styles.menu}>
               <ThemedText type="subtitle" style={styles.menuTitle}>
                 Evolution
@@ -955,8 +1079,14 @@ export default function MyPokemonScreen() {
                   Choose the Pokémon this evolution branches from.
                 </ThemedText>
                 <View style={styles.evolutionParentOptions}>
-                  {[selectedName, ...evolutionEntries.map((entry) => entry.name)]
-                    .filter((name, index, names) => name && names.indexOf(name) === index)
+                  {[
+                    selectedName,
+                    ...evolutionEntries.map((entry) => entry.name),
+                  ]
+                    .filter(
+                      (name, index, names) =>
+                        name && names.indexOf(name) === index,
+                    )
                     .map((name) => (
                       <Pressable
                         key={name}
@@ -979,7 +1109,9 @@ export default function MyPokemonScreen() {
                 <ThemedText type="smallBold">Evolution Stage</ThemedText>
                 <TextInput
                   keyboardType="numeric"
-                  onChangeText={(value) => setEvolutionDraftStage(Number(value || 1))}
+                  onChangeText={(value) =>
+                    setEvolutionDraftStage(Number(value || 1))
+                  }
                   placeholder="1"
                   placeholderTextColor="rgba(255, 255, 255, 0.6)"
                   style={styles.input}
@@ -989,7 +1121,9 @@ export default function MyPokemonScreen() {
                 <ThemedText type="smallBold">Evolves At Level:</ThemedText>
                 <TextInput
                   keyboardType="numeric"
-                  onChangeText={(value) => setEvolutionDraftLevel(Number(value || 1))}
+                  onChangeText={(value) =>
+                    setEvolutionDraftLevel(Number(value || 1))
+                  }
                   placeholder="Level"
                   placeholderTextColor="rgba(255, 255, 255, 0.6)"
                   style={styles.input}
@@ -1003,7 +1137,10 @@ export default function MyPokemonScreen() {
               ) : null}
 
               {!evolutionCreateMode ? (
-                <ScrollView style={styles.pokemonPicker} showsVerticalScrollIndicator>
+                <ScrollView
+                  style={styles.pokemonPicker}
+                  showsVerticalScrollIndicator
+                >
                   {customPokemon
                     .filter((pokemon) => pokemon.name !== selectedName)
                     .map((pokemon) => (
@@ -1013,9 +1150,14 @@ export default function MyPokemonScreen() {
                         style={styles.pokemonOption}
                       >
                         {pokemon.imageUrl ? (
-                          <Image source={{ uri: pokemon.imageUrl }} style={styles.smallSprite} />
+                          <Image
+                            source={{ uri: pokemon.imageUrl }}
+                            style={styles.smallSprite}
+                          />
                         ) : null}
-                        <ThemedText type="small">{formatPokemonName(pokemon.name)}</ThemedText>
+                        <ThemedText type="small">
+                          {formatPokemonName(pokemon.name)}
+                        </ThemedText>
                       </Pressable>
                     ))}
                 </ScrollView>
@@ -1033,7 +1175,10 @@ export default function MyPokemonScreen() {
 
                   <ThemedText type="smallBold">Pokemon Image?</ThemedText>
                   {evolutionDraftImage ? (
-                    <Image source={{ uri: evolutionDraftImage }} style={styles.previewImage} />
+                    <Image
+                      source={{ uri: evolutionDraftImage }}
+                      style={styles.previewImage}
+                    />
                   ) : null}
                   <Pressable
                     onPress={() => openImagePicker("evolution")}
@@ -1072,7 +1217,9 @@ export default function MyPokemonScreen() {
                             active && styles.selectedDropdown,
                           ]}
                         >
-                          <ThemedText type="small">{formatPokemonName(type)}</ThemedText>
+                          <ThemedText type="small">
+                            {formatPokemonName(type)}
+                          </ThemedText>
                         </Pressable>
                       );
                     })}
@@ -1152,10 +1299,7 @@ const baseStyles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(120, 140, 180, 0.18)",
-    shadowColor: "#000000",
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    boxShadow: "0px 8px 16px rgba(0, 0, 0, 0.14)",
     elevation: 3,
   },
   listControls: {

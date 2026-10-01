@@ -1,19 +1,25 @@
-import { useState } from "react";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AccountControl } from "./account-control";
 
 import { Colors } from "@/constants/theme";
-import { useAppAppearance, type AppearanceMode } from "@/hooks/use-app-appearance";
 import {
-  areDeleteConfirmationsEnabled,
-  setDeleteConfirmationsEnabled,
+    useAppAppearance,
+    type AppearanceMode,
+} from "@/hooks/use-app-appearance";
+import {
+    areDeleteConfirmationsEnabled,
+    setDeleteConfirmationsEnabled,
 } from "@/utils/delete-confirmation";
 
 export default function AppTabs() {
-  const { colorScheme, mode: appearanceMode, setMode: setAppearanceMode } =
-    useAppAppearance();
+  const {
+    colorScheme,
+    mode: appearanceMode,
+    setMode: setAppearanceMode,
+  } = useAppAppearance();
   const colors = Colors[colorScheme];
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
@@ -105,8 +111,8 @@ export default function AppTabs() {
             {showConfirmReset ? (
               <>
                 <Text style={[styles.menuText, { color: colors.text }]}>
-                  Reset all saved app data? This clears your regions,
-                  Pokémon, gimmicks, music, and custom entries.
+                  Reset all saved app data? This clears your regions, Pokémon,
+                  gimmicks, music, and custom entries.
                 </Text>
                 <Pressable
                   onPress={resetAllSavedData}
@@ -134,20 +140,32 @@ export default function AppTabs() {
                   Appearance
                 </Text>
                 <View style={styles.appearanceOptions}>
-                  {(["auto", "light", "dark"] as AppearanceMode[]).map((mode) => (
-                    <Pressable
-                      key={mode}
-                      onPress={() => setAppearanceMode(mode)}
-                      style={[
-                        styles.appearanceOption,
-                        appearanceMode === mode && styles.appearanceOptionActive,
-                      ]}
-                    >
-                      <Text style={[styles.menuButtonText, { color: colors.text }]}>
-                        {mode === "auto" ? "Auto" : mode === "light" ? "Light" : "Dark"}
-                      </Text>
-                    </Pressable>
-                  ))}
+                  {(["auto", "light", "dark"] as AppearanceMode[]).map(
+                    (mode) => (
+                      <Pressable
+                        key={mode}
+                        onPress={() => setAppearanceMode(mode)}
+                        style={[
+                          styles.appearanceOption,
+                          appearanceMode === mode &&
+                            styles.appearanceOptionActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.menuButtonText,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {mode === "auto"
+                            ? "Auto"
+                            : mode === "light"
+                              ? "Light"
+                              : "Dark"}
+                        </Text>
+                      </Pressable>
+                    ),
+                  )}
                 </View>
                 <Pressable
                   onPress={() => {
@@ -227,10 +245,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 12,
     borderWidth: 1,
-    shadowColor: "#000000",
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
+    boxShadow: "0px 8px 12px rgba(0, 0, 0, 0.24)",
     elevation: 6,
   },
   menuButton: {

@@ -7,7 +7,9 @@ export function hasUnsavedData() {
 
 export function subscribeToSaving(listener: () => void) {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function saveLocalData(key: string, value: string): boolean {
@@ -53,44 +55,93 @@ export function collectBackup() {
 
 export function parseBackup(text: string): Record<string, string> {
   const backup = JSON.parse(text);
-  if (backup?.version !== 2 || !backup.storage || typeof backup.storage !== "object") {
+  if (
+    backup?.version !== 2 ||
+    !backup.storage ||
+    typeof backup.storage !== "object"
+  ) {
     throw new Error("Choose a backup created by Export All Data.");
   }
   const storage: Record<string, string> = {};
   for (const key of BACKUP_KEYS) {
     const value = backup.storage[key];
     if (value === undefined) continue;
-    if (typeof value !== "string") throw new Error(`Invalid backup entry: ${key}`);
+    if (typeof value !== "string")
+      throw new Error(`Invalid backup entry: ${key}`);
     if (key === "pokemon-regions-appearance") {
-      if (!["auto", "light", "dark"].includes(value)) throw new Error("Invalid appearance setting.");
+      if (!["auto", "light", "dark"].includes(value))
+        throw new Error("Invalid appearance setting.");
     } else if (key === "pokemon-delete-confirmations-enabled") {
-      if (!["true", "false"].includes(value)) throw new Error("Invalid delete prompt setting.");
+      if (!["true", "false"].includes(value))
+        throw new Error("Invalid delete prompt setting.");
     } else {
       const entries = JSON.parse(value);
-      if (!Array.isArray(entries) || entries.some((entry) => !entry || typeof entry !== "object" || typeof entry.name !== "string")) {
+      if (
+        !Array.isArray(entries) ||
+        entries.some(
+          (entry) =>
+            !entry ||
+            typeof entry !== "object" ||
+            typeof entry.name !== "string",
+        )
+      ) {
         throw new Error(`Invalid saved collection: ${key}`);
       }
       for (const entry of entries) {
-        if (key === "pokemon-regions-recovery-v1" && (
-          typeof entry.id !== "string" || !Number.isInteger(entry.index) || entry.index < 0 ||
-          typeof entry.deletedAt !== "string" || !["region", "snapshot"].includes(entry.kind) ||
-          !entry.region || typeof entry.region.name !== "string"
-        )) throw new Error("Invalid recovery entry.");
-        const arrayFields = key === "pokemon-regions-v2"
-          ? ["routeNames", "gyms", "gymDetails", "gymPokemon", "eliteFour", "eliteFourPokemon", "championPokemon", "gimmicks", "music"]
-          : key === "pokemon-team" || key === "custom-pokemon-options-v2"
-            ? ["types", "evolutions"] : [];
-        if (arrayFields.some((field) => entry[field] !== undefined && !Array.isArray(entry[field]))) {
+        if (
+          key === "pokemon-regions-recovery-v1" &&
+          (typeof entry.id !== "string" ||
+            !Number.isInteger(entry.index) ||
+            entry.index < 0 ||
+            typeof entry.deletedAt !== "string" ||
+            !["region", "snapshot"].includes(entry.kind) ||
+            !entry.region ||
+            typeof entry.region.name !== "string")
+        )
+          throw new Error("Invalid recovery entry.");
+        const arrayFields =
+          key === "pokemon-regions-v2"
+            ? [
+                "routeNames",
+                "gyms",
+                "gymDetails",
+                "gymPokemon",
+                "eliteFour",
+                "eliteFourPokemon",
+                "championPokemon",
+                "gimmicks",
+                "music",
+              ]
+            : key === "pokemon-team" || key === "custom-pokemon-options-v2"
+              ? ["types", "evolutions"]
+              : [];
+        if (
+          arrayFields.some(
+            (field) =>
+              entry[field] !== undefined && !Array.isArray(entry[field]),
+          )
+        ) {
           throw new Error(`Invalid list in ${key}.`);
         }
         if (key === "pokemon-regions-v2") {
-          for (const field of ["routePokemon", "routeDetails", "mapPositions"]) {
-            if (entry[field] !== undefined && (!entry[field] || typeof entry[field] !== "object" || Array.isArray(entry[field]))) {
+          for (const field of [
+            "routePokemon",
+            "routeDetails",
+            "mapPositions",
+          ]) {
+            if (
+              entry[field] !== undefined &&
+              (!entry[field] ||
+                typeof entry[field] !== "object" ||
+                Array.isArray(entry[field]))
+            ) {
               throw new Error(`Invalid region content: ${field}`);
             }
           }
           for (const field of ["routeNames", "gyms", "eliteFour", "gimmicks"]) {
-            if (entry[field]?.some((value: unknown) => typeof value !== "string")) {
+            if (
+              entry[field]?.some((value: unknown) => typeof value !== "string")
+            ) {
               throw new Error(`Invalid region names: ${field}`);
             }
           }
@@ -99,17 +150,50 @@ export function parseBackup(text: string): Record<string, string> {
     }
     storage[key] = value;
   }
-  if (!Object.keys(storage).length) throw new Error("This backup contains no supported app data.");
+  if (!Object.keys(storage).length)
+    throw new Error("This backup contains no supported app data.");
   return storage;
+}
+
+// Kept outside BACKUP_KEYS so restoring a backup never wipes the safety copy of what came before it.
+const PRE_RESTORE_BACKUP_KEY = "pokemon-regions-pre-restore-backup-v1";
+
+export function getPreRestoreBackup(): {
+  storage: Record<string, string>;
+} | null {
+  const raw = window.localStorage.getItem(PRE_RESTORE_BACKUP_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.storage && typeof parsed.storage === "object"
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPreRestoreBackup() {
+  window.localStorage.removeItem(PRE_RESTORE_BACKUP_KEY);
 }
 
 // Preserve the previous data if any write fails (for example, storage quota).
 export function restoreBackup(storage: Record<string, string>) {
   const previous = new Map<string, string | null>();
-  for (const key of BACKUP_KEYS) previous.set(key, window.localStorage.getItem(key));
+  for (const key of BACKUP_KEYS)
+    previous.set(key, window.localStorage.getItem(key));
+  try {
+    window.localStorage.setItem(
+      PRE_RESTORE_BACKUP_KEY,
+      JSON.stringify(collectBackup()),
+    );
+  } catch {
+    /* Safety snapshot is best-effort; restore still proceeds without it. */
+  }
   try {
     for (const key of BACKUP_KEYS) window.localStorage.removeItem(key);
-    for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value);
+    for (const [key, value] of Object.entries(storage))
+      window.localStorage.setItem(key, value);
   } catch (error) {
     for (const key of BACKUP_KEYS) window.localStorage.removeItem(key);
     for (const [key, value] of previous) {

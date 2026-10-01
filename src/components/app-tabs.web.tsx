@@ -8,7 +8,13 @@ import {
     TabTriggerSlotProps,
 } from "expo-router/ui";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import {
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    useWindowDimensions,
+    View,
+} from "react-native";
 
 import { AccountControl } from "./account-control";
 import { BackupRestore, downloadBackup } from "./backup-restore";
@@ -16,11 +22,14 @@ import { ThemedText } from "./themed-text";
 import { ThemedView } from "./themed-view";
 
 import { MaxContentWidth, Spacing } from "@/constants/theme";
-import { useAppAppearance, type AppearanceMode } from "@/hooks/use-app-appearance";
+import {
+    useAppAppearance,
+    type AppearanceMode,
+} from "@/hooks/use-app-appearance";
 import { useTheme } from "@/hooks/use-theme";
 import {
-  areDeleteConfirmationsEnabled,
-  setDeleteConfirmationsEnabled,
+    areDeleteConfirmationsEnabled,
+    setDeleteConfirmationsEnabled,
 } from "@/utils/delete-confirmation";
 
 export default function AppTabs() {
@@ -30,10 +39,9 @@ export default function AppTabs() {
   const compactNavigation = !hydrated || width < 700;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
-  const [deleteConfirmationsEnabled, setDeletePromptState] = useState(
-    true,
-  );
-  const { mode: appearanceMode, setMode: setAppearanceMode } = useAppAppearance();
+  const [deleteConfirmationsEnabled, setDeletePromptState] = useState(true);
+  const { mode: appearanceMode, setMode: setAppearanceMode } =
+    useAppAppearance();
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Read browser preferences only after hydration.
@@ -136,12 +144,18 @@ function SettingsControl({
   showConfirmReset,
 }: SettingsControlProps) {
   function exportAllData() {
-    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
     downloadBackup();
   }
 
   return (
-    <View style={[styles.settingsContainer, compact && styles.compactSettingsContainer]}>
+    <View
+      style={[
+        styles.settingsContainer,
+        compact && styles.compactSettingsContainer,
+      ]}
+    >
       <AccountControl />
       <Pressable
         accessibilityLabel="Open settings"
@@ -192,21 +206,28 @@ function SettingsControl({
               <View style={styles.appearanceSection}>
                 <ThemedText type="smallBold">Appearance</ThemedText>
                 <View style={styles.appearanceOptions}>
-                  {(["auto", "light", "dark"] as AppearanceMode[]).map((mode) => (
-                    <Pressable
-                      key={mode}
-                      onPress={() => setAppearanceMode(mode)}
-                      style={[
-                        styles.appearanceOption,
-                        appearanceMode === mode && styles.appearanceOptionActive,
-                      ]}
-                    >
-                      <ThemedText type="smallBold">
-                        {appearanceMode === mode ? "✓ " : ""}
-                        {mode === "auto" ? "Auto" : mode === "light" ? "Light" : "Dark"}
-                      </ThemedText>
-                    </Pressable>
-                  ))}
+                  {(["auto", "light", "dark"] as AppearanceMode[]).map(
+                    (mode) => (
+                      <Pressable
+                        key={mode}
+                        onPress={() => setAppearanceMode(mode)}
+                        style={[
+                          styles.appearanceOption,
+                          appearanceMode === mode &&
+                            styles.appearanceOptionActive,
+                        ]}
+                      >
+                        <ThemedText type="smallBold">
+                          {appearanceMode === mode ? "✓ " : ""}
+                          {mode === "auto"
+                            ? "Auto"
+                            : mode === "light"
+                              ? "Light"
+                              : "Dark"}
+                        </ThemedText>
+                      </Pressable>
+                    ),
+                  )}
                 </View>
               </View>
               <Pressable
@@ -218,7 +239,9 @@ function SettingsControl({
                 style={styles.menuButton}
               >
                 <ThemedText type="smallBold">
-                  {deleteConfirmationsEnabled ? "Delete Prompts: On" : "Delete Prompts: Off"}
+                  {deleteConfirmationsEnabled
+                    ? "Delete Prompts: On"
+                    : "Delete Prompts: Off"}
                 </ThemedText>
               </Pressable>
               <Pressable
@@ -231,7 +254,10 @@ function SettingsControl({
                 <ThemedText type="smallBold">Export All Data</ThemedText>
               </Pressable>
               <BackupRestore buttonStyle={styles.menuButton} />
-              <Pressable onPress={() => setSettingsOpen(false)} style={styles.menuButton}>
+              <Pressable
+                onPress={() => setSettingsOpen(false)}
+                style={styles.menuButton}
+              >
                 <ThemedText type="smallBold">Close</ThemedText>
               </Pressable>
             </>
@@ -295,7 +321,9 @@ export function CustomTabList({
           >
             {props.children}
           </ScrollView>
-        ) : props.children}
+        ) : (
+          props.children
+        )}
       </ThemedView>
     </View>
   );
@@ -332,7 +360,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     maxWidth: MaxContentWidth,
     borderWidth: 0,
-    shadowOpacity: 0,
+    boxShadow: "none",
     elevation: 0,
   },
   compactInnerContainer: {
@@ -390,10 +418,7 @@ const styles = StyleSheet.create({
     zIndex: 30,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
-    shadowColor: "#000000",
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
+    boxShadow: "0px 8px 12px rgba(0, 0, 0, 0.24)",
     elevation: 6,
   },
   appearanceSection: {
